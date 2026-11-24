@@ -989,3 +989,31 @@ select option {
     border-radius: 22px;
   }
 }
+
+.status-create {
+  background: color-mix(in srgb, var(--status-color) 64%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.status-row {
+  border-color: var(--glass-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.group-row {
+  border-color: rgba(255, 255, 255, .07);
+  background: rgba(255, 255, 255, .025);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.profile-photo-picker .avatar,
+.profile-preview .avatar,
+.rail-profile .avatar,
+.group-row .avatar {
+  border-color: rgba(37, 211, 102, .4);
+  box-shadow: 0 0 0 3px rgba(37, 211, 102, .08), 0 0 22px rgba(124, 58, 237, .12);
+}

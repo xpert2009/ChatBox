@@ -1031,7 +1031,7 @@ function StatusPage({ statuses, user, onChanged }) {
   }
   return (
     <div className="status-page">
-      <form className="status-create" onSubmit={postStatus} style={{ backgroundColor: color }}>
+      <form className="status-create" onSubmit={postStatus} style={{ '--status-color': color }}>
         <label htmlFor="status-text">A thought to share?</label>
         <textarea id="status-text" value={content} maxLength={700} onChange={(event) => setContent(event.target.value)} placeholder={file ? file.name : 'Write a little something…'} />
         <div className="status-create-actions"><div className="swatches">{['#315c55', '#725c8c', '#9d634d', '#315c7c'].map((value) => <button key={value} type="button" className={color === value ? 'chosen' : ''} style={{ backgroundColor: value }} onClick={() => setColor(value)} aria-label={`Set status background ${value}`} />)}<label className="status-file-button" aria-label="Choose status photo or video"><Image size={16} /><input type="file" accept="image/*,video/*" onChange={(event) => setFile(event.target.files?.[0] || null)} /></label></div><button type="submit" disabled={busy || (!content.trim() && !file)}>{busy ? 'Sharing…' : 'Share'}</button></div>
