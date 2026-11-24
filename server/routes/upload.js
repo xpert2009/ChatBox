@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { requireAuth } from '../middleware/auth.js';
+import { Media } from '../models/index.js';
 
 const router = Router();
 const upload = multer({
@@ -33,11 +34,21 @@ router.post('/', upload.single('file'), async (req, res, next) => {
       );
       stream.end(req.file.buffer);
     });
+    const media = await Media.create({
+      owner: req.user.id,
+      secureURL: result.secure_url,
+      publicId: result.public_id,
+      resourceType: result.resource_type,
+      format: result.format || '',
+      bytes: result.bytes,
+      originalName: req.file.originalname.slice(0, 200),
+    });
     res.status(201).json({
       fileURL: result.secure_url,
       fileName: req.file.originalname.slice(0, 200),
       fileSize: req.file.size,
       resourceType: result.resource_type,
+      mediaId: media.id,
     });
   } catch (error) {
     next(error);

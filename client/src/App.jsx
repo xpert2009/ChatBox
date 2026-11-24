@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
@@ -9,7 +9,7 @@ import {
   Video, VideoOff, X,
 } from 'lucide-react';
 import { signInWithPopup, signOut } from '@firebase/auth';
-import api, { getErrorMessage } from './lib/api';
+import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
 import { useAuthStore } from './store/authStore';
 import './App.css';
@@ -50,11 +50,14 @@ function LoginPage() {
       navigate('/home', { replace: true });
       return;
     }
-    if (!sessionStorage.getItem('chatbox-token')) return;
+    if (!getAuthToken()) return;
     let active = true;
     api.get('/api/auth/me')
-      .then(({ data }) => { if (active) { setUser(data.user); navigate('/home', { replace: true }); } })
-      .catch(() => sessionStorage.removeItem('chatbox-token'));
+      .then(({ data }) => {
+        if (data.token) setAuthToken(data.token);
+        if (active) { setUser(data.user); navigate('/home', { replace: true }); }
+      })
+      .catch(() => clearAuthToken());
     return () => { active = false; };
   }, [navigate, setUser, user]);
 
@@ -66,7 +69,7 @@ function LoginPage() {
       const result = await signInWithPopup(auth, googleProvider);
       const idToken = await result.user.getIdToken();
       const response = await api.post('/api/auth/google', { idToken });
-      sessionStorage.setItem('chatbox-token', response.data.token);
+      setAuthToken(response.data.token);
       setUser(response.data.user);
       navigate(response.data.needsUsername ? '/setup' : '/home');
     } catch (loginError) {
@@ -181,12 +184,15 @@ function AppShell() {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const clearUser = useAuthStore((state) => state.clearUser);
-  const [booting, setBooting] = useState(() => Boolean(sessionStorage.getItem('chatbox-token')));
+  const [booting, setBooting] = useState(() => Boolean(getAuthToken()));
   const [conversations, setConversations] = useState([]);
   const [groups, setGroups] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [active, setActive] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [messageCursor, setMessageCursor] = useState(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [section, setSection] = useState('chats');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -195,7 +201,7 @@ function AppShell() {
   const [text, setText] = useState('');
   const [reply, setReply] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [theme, setTheme] = useState(localStorage.getItem('chatbox-theme') || 'light');
+  const theme = user?.settings?.theme || localStorage.getItem('chatbox-theme') || 'light';
   const [menuMessage, setMenuMessage] = useState(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -211,9 +217,14 @@ function AppShell() {
   const remoteAudioRef = useRef(null);
   const localVideoRef = useRef(null);
   const scrollRef = useRef(null);
+  const scrollAdjustmentRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const loadingOlderRef = useRef(false);
+  const paginationEpochRef = useRef(0);
   const typingTimer = useRef(null);
   const typingActive = useRef(false);
   const activeRef = useRef(active);
+  const userRef = useRef(user);
   const endCallRef = useRef(null);
   const navigate = useNavigate();
   const userId = user?._id;
@@ -237,7 +248,12 @@ function AppShell() {
     return conversations.find((entry) => entry.user._id === active.id)?.user || active.user || active;
   }, [active, conversations, groups]);
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { userRef.current = user; }, [user]);
   useEffect(() => { endCallRef.current = endCall; }, [endCall]);
+
+  const saveUser = useCallback((updatedUser) => {
+    setUser(updatedUser);
+  }, [setUser]);
 
   const loadData = useCallback(async () => {
     try {
@@ -256,22 +272,25 @@ function AppShell() {
 
   useEffect(() => {
     let activeEffect = true;
-    const token = sessionStorage.getItem('chatbox-token');
+    const token = getAuthToken();
     if (!token) return undefined;
     api.get('/api/auth/me')
-      .then(({ data }) => { if (activeEffect) setUser(data.user); })
+      .then(({ data }) => {
+        if (data.token) setAuthToken(data.token);
+        if (activeEffect) saveUser(data.user);
+      })
       .catch(() => {
-        sessionStorage.removeItem('chatbox-token');
+        clearAuthToken();
         if (activeEffect) clearUser();
       })
       .finally(() => { if (activeEffect) setBooting(false); });
     return () => { activeEffect = false; };
-  }, [clearUser, setUser]);
+  }, [clearUser, saveUser]);
 
   useEffect(() => {
     if (!userId) return undefined;
     loadData();
-    const socket = io(API_URL, { auth: { token: sessionStorage.getItem('chatbox-token') } });
+    const socket = io(API_URL, { auth: { token: getAuthToken() } });
     socketRef.current = socket;
     socket.on('connect_error', (error) => toast.error(`Live updates unavailable: ${error.message}`));
     socket.on('receive_message', (message) => {
@@ -282,7 +301,11 @@ function AppShell() {
         : (!message.group && (message.sender?._id === currentActive?.id || message.sender === currentActive?.id ||
           message.receiver === currentActive?.id || message.receiver?._id === currentActive?.id));
       if (selected) setMessages((current) => current.some((item) => item._id === message._id) ? current : [...current, message]);
-      if (!fromSelf && !selected) {
+      if (selected && !fromSelf) {
+        if (message.group) api.put(`/api/messages/read/group/${message.group._id || message.group}`).catch(() => {});
+        else api.put(`/api/messages/read/${message.sender?._id || message.sender}`).catch(() => {});
+      }
+      if (!fromSelf && !selected && userRef.current?.settings?.notifications !== false) {
         if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
           new Notification(message.sender?.name || 'New message', { body: message.content || 'Sent an attachment' });
         }
@@ -299,9 +322,17 @@ function AppShell() {
       }));
       loadData();
     });
-    socket.on('message_deleted', ({ messageId }) => {
-      setMessages((current) => current.filter((message) => message._id !== messageId));
+    socket.on('pending_notifications', ({ count }) => {
+      if (count > 0 && userRef.current?.settings?.notifications !== false) {
+        toast(`You have ${count} unread message${count === 1 ? '' : 's'}.`);
+      }
       loadData();
+    });
+    socket.on('groups_updated', loadData);
+    socket.on('statuses_updated', loadData);
+    socket.on('conversations_updated', loadData);
+    socket.on('account_updated', (updatedUser) => {
+      if (updatedUser._id === userId) saveUser(updatedUser);
     });
     socket.on('typing_indicator', ({ from, isTyping }) => {
       if (from === activeRef.current?.id) setTyping(Boolean(isTyping));
@@ -330,7 +361,7 @@ function AppShell() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [loadData, userId]);
+  }, [loadData, saveUser, userId]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -342,17 +373,72 @@ function AppShell() {
       return undefined;
     }
     let current = true;
-    const params = active.type === 'group' ? { groupId: active.id } : { userId: active.id };
+    const params = active.type === 'group' ? { groupId: active.id, limit: 100 } : { userId: active.id, limit: 100 };
     api.get('/api/messages', { params })
-      .then(({ data }) => { if (current) setMessages(data.messages); })
+      .then(({ data }) => {
+        if (current) {
+          setMessages(data.messages);
+          setHasMoreMessages(data.hasMore);
+          setMessageCursor(data.nextCursor);
+        }
+      })
       .catch((error) => toast.error(getErrorMessage(error)));
     if (active.type === 'user') api.put(`/api/messages/read/${active.id}`).catch(() => {});
+    else api.put(`/api/messages/read/group/${active.id}`).catch(() => {});
     return () => { current = false; };
   }, [active]);
 
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, typing]);
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (scrollAdjustmentRef.current) {
+      const { scrollHeight, scrollTop } = scrollAdjustmentRef.current;
+      container.scrollTop = scrollTop + (container.scrollHeight - scrollHeight);
+      scrollAdjustmentRef.current = null;
+    } else if (shouldStickToBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!active || !hasMoreMessages || !messageCursor || loadingOlderRef.current) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const requestedConversation = `${active.type}:${active.id}`;
+    const requestEpoch = paginationEpochRef.current;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const params = active.type === 'group'
+        ? { groupId: active.id, before: messageCursor, limit: 100 }
+        : { userId: active.id, before: messageCursor, limit: 100 };
+      const { data } = await api.get('/api/messages', { params });
+      if (requestEpoch !== paginationEpochRef.current ||
+          `${activeRef.current?.type}:${activeRef.current?.id}` !== requestedConversation) return;
+      if (data.messages.length) {
+        scrollAdjustmentRef.current = { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop };
+        setMessages((current) => {
+          const knownIds = new Set(current.map((message) => message._id));
+          return [...data.messages.filter((message) => !knownIds.has(message._id)), ...current];
+        });
+      }
+      setHasMoreMessages(data.hasMore);
+      setMessageCursor(data.nextCursor);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      if (requestEpoch === paginationEpochRef.current) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
+    }
+  }, [active, hasMoreMessages, messageCursor]);
+
+  function handleMessageScroll(event) {
+    const container = event.currentTarget;
+    shouldStickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+    if (container.scrollTop < 80) loadOlderMessages();
+  }
 
   useEffect(() => {
     if (!query.trim() || query.trim().length < 2) return undefined;
@@ -391,6 +477,13 @@ function AppShell() {
   async function openConversation(person, type = 'user') {
     const id = person._id || person.id;
     setMessages([]);
+    setHasMoreMessages(false);
+    setMessageCursor(null);
+    paginationEpochRef.current += 1;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+    scrollAdjustmentRef.current = null;
+    shouldStickToBottomRef.current = true;
     setActive({ ...person, id, type, user: person });
     setSection('chats');
     setQuery('');
@@ -450,6 +543,7 @@ function AppShell() {
         fileURL: upload.data.fileURL,
         fileName: upload.data.fileName,
         fileSize: upload.data.fileSize,
+        mediaId: upload.data.mediaId,
         ...(active.type === 'group' ? { groupId: active.id } : { to: active.id }),
       };
       const response = await api.post('/api/messages', payload);
@@ -534,27 +628,27 @@ function AppShell() {
     setText((current) => `${current}${emojiData.emoji}`);
   }
 
+  async function updateSettings(settings) {
+    try {
+      const { data } = await api.put('/api/users/settings', settings);
+      saveUser(data.user);
+      toast.success('Your settings are saved.');
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }
+
   async function onLogout() {
     try {
       await api.post('/api/auth/logout');
     } catch {
       // Local logout still proceeds if the network is unavailable.
     }
-    sessionStorage.removeItem('chatbox-token');
+    clearAuthToken();
     if (auth) await signOut(auth).catch(() => {});
     socketRef.current?.disconnect();
     clearUser();
     navigate('/login', { replace: true });
-  }
-
-  async function removeMessage(message, forEveryone) {
-    try {
-      await api.delete(`/api/messages/${message._id}`, { params: { forEveryone } });
-      setMessages((current) => current.filter((entry) => entry._id !== message._id));
-      setMenuMessage(null);
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
   }
 
   if (booting) return <div className="boot-screen"><div className="spinner" /><span>Making a little space…</span></div>;
@@ -571,7 +665,7 @@ function AppShell() {
           <RailButton icon={<UserPlus />} label="Groups" active={section === 'groups'} onClick={() => setSection('groups')} />
         </div>
         <div className="rail-bottom">
-          <button className="rail-icon" aria-label="Toggle dark mode" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? <Moon /> : <Sun />}</button>
+          <button className="rail-icon" aria-label="Toggle dark mode" onClick={() => updateSettings({ theme: theme === 'light' ? 'dark' : 'light' })}>{theme === 'light' ? <Moon /> : <Sun />}</button>
           <button className="rail-profile" aria-label="Open profile" onClick={() => setShowProfile(true)}><Avatar person={user} size="small" /></button>
         </div>
       </aside>
@@ -665,7 +759,7 @@ function AppShell() {
                 <button className="icon-button" aria-label="More chat options" onClick={() => toast('More chat settings are coming soon.')}><MoreHorizontal size={21} /></button>
               </div>
             </header>
-            <div className="message-scroll" ref={scrollRef}>
+            <div className="message-scroll" ref={scrollRef} onScroll={handleMessageScroll}>
               <div className="conversation-intro">
                 <Avatar person={activePerson} size="large" />
                 <b>{activePerson?.name || activePerson?.username}</b>
@@ -673,6 +767,7 @@ function AppShell() {
                 {active.type === 'group' && <span>Created {formatDate(activePerson?.createdAt)}</span>}
                 <small>Messages are just between you and {active.type === 'group' ? 'the group' : activePerson?.name}.</small>
               </div>
+              {loadingOlder && <div className="history-loader" role="status">Loading older messages…</div>}
               {messages.length === 0 && <div className="empty-chat">This is the beginning of something good. Say hello.</div>}
               {messages.map((message, index) => {
                 const own = message.sender?._id === user._id || message.sender === user._id;
@@ -691,7 +786,7 @@ function AppShell() {
                       {message.type === 'text' && message.content && <p>{message.content}</p>}
                       <span className="message-meta"><time>{formatTime(message.createdAt)}</time>{own && (message.status === 'read' ? <CheckCheck size={14} className="read-check" /> : <Check size={14} />)}</span>
                       <button className="message-more" aria-label="Message actions" onClick={() => setMenuMessage(menuMessage === message._id ? null : message._id)}><MoreHorizontal size={14} /></button>
-                      {menuMessage === message._id && <div className="message-menu"><button onClick={() => { setReply(message); setMenuMessage(null); }}>Reply</button><button onClick={() => navigator.clipboard.writeText(message.content || message.fileURL).then(() => toast.success('Copied'))}>Copy</button><button className="danger-action" onClick={() => removeMessage(message, own)}>Delete {own ? 'for everyone' : 'for me'}</button></div>}
+                      {menuMessage === message._id && <div className="message-menu"><button onClick={() => { setReply(message); setMenuMessage(null); }}>Reply</button><button onClick={() => navigator.clipboard.writeText(message.content || message.fileURL).then(() => toast.success('Copied'))}>Copy</button></div>}
                     </div>
                   </div>
                 );
@@ -711,7 +806,7 @@ function AppShell() {
         )}
       </main>
 
-      {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onSave={setUser} onLogout={onLogout} />}
+      {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onSave={saveUser} onUpdateSettings={updateSettings} onLogout={onLogout} />}
       {showNewGroup && <NewGroupModal onClose={() => setShowNewGroup(false)} onCreated={(group) => { setGroups((current) => [group, ...current]); openConversation(group, 'group'); setShowNewGroup(false); }} />}
       {viewingStatus && <StoryViewer status={viewingStatus} onClose={() => setViewingStatus(null)} />}
       {incomingCall && <IncomingCallModal details={incomingCall} person={conversations.find((entry) => entry.user._id === incomingCall.from)?.user} onAccept={acceptCall} onDecline={() => { socketRef.current?.emit('call_declined', { to: incomingCall.from }); setIncomingCall(null); }} />}
@@ -761,7 +856,7 @@ function StatusPage({ statuses, user, onChanged }) {
   const others = statuses.filter((status) => status.user?._id !== user._id);
   async function postStatus(event) {
     event.preventDefault();
-    if (!content.trim()) return;
+    if (!content.trim() && !file) return;
     setBusy(true);
     try {
       let payload = { type: 'text', content, backgroundColor: color };
@@ -773,6 +868,7 @@ function StatusPage({ statuses, user, onChanged }) {
           ...payload,
           type: file.type.startsWith('video/') ? 'video' : 'image',
           fileURL: uploaded.data.fileURL,
+          mediaId: uploaded.data.mediaId,
           content: '',
         };
       }
@@ -879,14 +975,16 @@ function NewGroupModal({ onClose, onCreated }) {
   );
 }
 
-function ProfileModal({ user, onClose, onSave, onLogout }) {
+function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout }) {
   const [name, setName] = useState(user.name);
   const [bio, setBio] = useState(user.bio || '');
   const [username, setUsername] = useState(user.username);
   const [photoURL, setPhotoURL] = useState(user.photoURL || '');
+  const [photoMediaId, setPhotoMediaId] = useState(user.photoMedia?._id || user.photoMedia || '');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState('profile');
+  const settings = { theme: 'light', notifications: true, ...user.settings };
   const [privacy, setPrivacy] = useState({
     lastSeen: 'everyone',
     photo: 'everyone',
@@ -913,7 +1011,12 @@ function ProfileModal({ user, onClose, onSave, onLogout }) {
     setBusy(true);
     try {
       if (username !== user.username) await api.patch('/api/auth/username', { username });
-      const { data } = await api.put('/api/users/profile', { name, bio, photoURL });
+      const { data } = await api.put('/api/users/profile', {
+        name,
+        bio,
+        photoURL,
+        ...(photoMediaId ? { photoMediaId } : {}),
+      });
       onSave(data.user);
       toast.success('Your profile is looking good.');
       onClose();
@@ -932,6 +1035,7 @@ function ProfileModal({ user, onClose, onSave, onLogout }) {
     try {
       const { data } = await api.post('/api/upload', formData);
       setPhotoURL(data.fileURL);
+      setPhotoMediaId(data.mediaId);
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -950,9 +1054,12 @@ function ProfileModal({ user, onClose, onSave, onLogout }) {
       toast.error(getErrorMessage(error));
     }
   }
+  async function saveSetting(field, value) {
+    await onUpdateSettings({ [field]: value });
+  }
   return (
     <Modal title="Your space" onClose={onClose}>
-      <div className="profile-tabs"><button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Profile</button><button className={tab === 'privacy' ? 'active' : ''} onClick={() => setTab('privacy')}>Privacy</button></div>
+      <div className="profile-tabs"><button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Profile</button><button className={tab === 'privacy' ? 'active' : ''} onClick={() => setTab('privacy')}>Privacy</button><button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Settings</button></div>
       {tab === 'profile' ? <form className="modal-form" onSubmit={save}>
         <div className="profile-preview"><label className="profile-photo-picker" aria-label="Change profile photo"><Avatar person={{ ...user, name, photoURL }} size="large" /><input type="file" accept="image/*" onChange={(event) => uploadPhoto(event.target.files?.[0])} /><span>{uploadingPhoto ? 'Uploading…' : 'Change photo'}</span></label><span><b>{name}</b><small>@{username}</small></span></div>
         <label className="input-label">Display name<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} /></label>
@@ -960,10 +1067,14 @@ function ProfileModal({ user, onClose, onSave, onLogout }) {
         <label className="input-label">About you<textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={100} rows={3} /></label>
         <button className="primary-button full-button" disabled={busy || availability === false}>{busy ? 'Saving…' : 'Save changes'}</button>
         <button type="button" className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
-      </form> : <div className="privacy-panel">
+      </form> : tab === 'privacy' ? <div className="privacy-panel">
         <p>Your account is connected with Google. Your direct messages are visible only to you and the recipient.</p>
         {['lastSeen', 'photo', 'online'].map((field) => <label className="privacy-setting" key={field}><span><b>{field === 'lastSeen' ? 'Last seen' : field === 'photo' ? 'Profile photo' : 'Online status'}</b><small>Who can see this information</small></span><select value={privacy[field]} onChange={(event) => savePrivacy(field, event.target.value)}><option value="everyone">Everyone</option>{field !== 'online' && <option value="contacts">My contacts</option>}<option value="nobody">Nobody</option></select></label>)}
         <label className="privacy-toggle"><span><b>Read receipts</b><small>Share when you have read a message</small></span><input type="checkbox" checked={privacy.readReceipts} onChange={(event) => savePrivacy('readReceipts', event.target.checked)} /></label>
+        <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
+      </div> : <div className="privacy-panel">
+        <label className="privacy-setting"><span><b>Appearance</b><small>Sync your theme across devices</small></span><select value={settings.theme} onChange={(event) => saveSetting('theme', event.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label className="privacy-toggle"><span><b>Notifications</b><small>Keep message notifications enabled</small></span><input type="checkbox" checked={settings.notifications} onChange={(event) => saveSetting('notifications', event.target.checked)} /></label>
         <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
       </div>}
     </Modal>

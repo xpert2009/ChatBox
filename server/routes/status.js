@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import { Group, Message, Status, User } from '../models/index.js';
+import { Group, Media, Message, Status, User } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { serializeVisibleUser } from '../utils/privacy.js';
 
@@ -38,18 +38,29 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { type, content = '', fileURL = '', backgroundColor = '#075e54' } = req.body;
+    const { type, content = '', fileURL = '', mediaId, backgroundColor = '#075e54' } = req.body;
     if (!['image', 'video', 'text'].includes(type)) return res.status(400).json({ error: 'Unsupported status type.' });
     if (type === 'text' && !String(content).trim()) return res.status(400).json({ error: 'Text status cannot be empty.' });
     if (type !== 'text' && !fileURL) return res.status(400).json({ error: 'Upload a file for this status.' });
+    let media = null;
+    if (mediaId) {
+      if (!mongoose.isValidObjectId(mediaId)) return res.status(400).json({ error: 'Invalid status media.' });
+      media = await Media.findOne({ _id: mediaId, owner: req.user.id });
+      const expectedResourceType = type === 'image' ? 'image' : 'video';
+      if (!media || media.secureURL !== fileURL || media.resourceType !== expectedResourceType) {
+        return res.status(400).json({ error: 'The status media is not available.' });
+      }
+    }
     const status = await Status.create({
       user: req.user.id,
       type,
       content: String(content).slice(0, 700),
       fileURL: String(fileURL),
+      media: media?._id || null,
       backgroundColor: /^#[0-9a-f]{6}$/i.test(backgroundColor) ? backgroundColor : '#075e54',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
+    req.app.get('io').to(`user:${req.user.id}`).emit('statuses_updated');
     res.status(201).json({ status });
   } catch (error) {
     next(error);
@@ -65,6 +76,7 @@ router.post('/:id/view', async (req, res, next) => {
       { new: true },
     );
     if (!status) return res.status(404).json({ error: 'Status not found or expired.' });
+    req.app.get('io').to(`user:${status.user}`).emit('statuses_updated');
     res.json({ status });
   } catch (error) {
     next(error);
@@ -75,6 +87,7 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const result = await Status.deleteOne({ _id: req.params.id, user: req.user.id });
     if (!result.deletedCount) return res.status(404).json({ error: 'Status not found.' });
+    req.app.get('io').to(`user:${req.user.id}`).emit('statuses_updated');
     res.json({ success: true });
   } catch (error) {
     next(error);

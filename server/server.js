@@ -11,6 +11,7 @@ import messageRoutes from './routes/messages.js';
 import groupRoutes from './routes/groups.js';
 import statusRoutes from './routes/status.js';
 import uploadRoutes from './routes/upload.js';
+import notificationRoutes from './routes/notifications.js';
 import { attachSocketServer } from './socket/index.js';
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/status', statusRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use((req, res) => res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` }));
 app.use((error, _req, res, _next) => {

@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
 import { getFirebaseAuth } from '../config/firebase.js';
 import { User } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createSessionToken } from '../utils/sessions.js';
 
 const router = Router();
 
@@ -37,10 +37,11 @@ router.post('/google', async (req, res, next) => {
     } else {
       user.name = decoded.name;
       user.email = decoded.email;
-      user.photoURL = decoded.picture || user.photoURL;
+      if (user.photoURL && user.photoURL !== decoded.picture) user.hasCustomPhoto = true;
+      if (!user.hasCustomPhoto) user.photoURL = decoded.picture || user.photoURL;
       await user.save();
     }
-    const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const { token } = await createSessionToken(user.id);
     res.json({
       token,
       isNewUser,
@@ -52,13 +53,21 @@ router.post('/google', async (req, res, next) => {
   }
 });
 
-router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
+router.get('/me', requireAuth, async (req, res, next) => {
+  try {
+    const session = req.session ? null : await createSessionToken(req.user.id);
+    res.json({ user: req.user, token: session?.token || null });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.post('/logout', requireAuth, async (req, res, next) => {
   try {
-    req.user.isOnline = false;
-    req.user.lastSeen = new Date();
-    await req.user.save();
+    if (req.session) {
+      req.session.revokedAt = new Date();
+      await req.session.save();
+    }
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -75,6 +84,7 @@ router.patch('/username', requireAuth, async (req, res, next) => {
     if (taken) return res.status(409).json({ error: 'That username is already taken.' });
     req.user.username = username;
     await req.user.save();
+    req.app.get('io').to(`user:${req.user.id}`).emit('account_updated', req.user.toObject());
     res.json({ user: req.user });
   } catch (error) {
     next(error);

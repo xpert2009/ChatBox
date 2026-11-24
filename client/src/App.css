@@ -88,7 +88,8 @@
 .chat-header-actions { display: flex; gap: 5px; margin-left: auto; }
 .chat-header-actions .icon-button { color: var(--ink-soft); }
 .mobile-back { display: none; }
-.message-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 26px max(5%, calc((100% - 780px) / 2)) 32px; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.message-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 26px max(5%, calc((100% - 780px) / 2)) 32px; scroll-behavior: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.history-loader { padding: 10px 0; color: var(--ink-faint); font-size: 10px; text-align: center; }
 .conversation-intro { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 1px auto 28px; text-align: center; }
 .conversation-intro .avatar { margin-bottom: 5px; }
 .conversation-intro b { color: var(--ink); font-size: 13px; }

@@ -11,6 +11,11 @@ function isAdmin(group, userId) {
   return group.admins.some((id) => id.equals(userId));
 }
 
+function emitGroupUpdate(req, group, additionalUserIds = []) {
+  const userIds = new Set([...group.members.map(String), ...additionalUserIds.map(String)]);
+  for (const userId of userIds) req.app.get('io').to(`user:${userId}`).emit('groups_updated');
+}
+
 router.post('/', async (req, res, next) => {
   try {
     const name = String(req.body.name || '').trim();
@@ -28,6 +33,7 @@ router.post('/', async (req, res, next) => {
       admins: [req.user.id],
       createdBy: req.user.id,
     });
+    emitGroupUpdate(req, group);
     res.status(201).json({ group });
   } catch (error) {
     next(error);
@@ -75,6 +81,7 @@ router.put('/:id', async (req, res, next) => {
     if (req.body.photoURL !== undefined) group.photoURL = String(req.body.photoURL);
     if (req.body.onlyAdminCanMessage !== undefined) group.onlyAdminCanMessage = Boolean(req.body.onlyAdminCanMessage);
     await group.save();
+    emitGroupUpdate(req, group);
     res.json({ group });
   } catch (error) {
     next(error);
@@ -94,6 +101,7 @@ router.post('/:id/members', async (req, res, next) => {
     if (existing.length !== users.length) return res.status(400).json({ error: 'One or more users do not exist.' });
     group.members.addToSet(...users);
     await group.save();
+    emitGroupUpdate(req, group);
     res.json({ group });
   } catch (error) {
     next(error);
@@ -105,9 +113,11 @@ router.delete('/:id/members/:userId', async (req, res, next) => {
     const group = await Group.findOne({ _id: req.params.id, members: req.user.id });
     if (!group) return res.status(404).json({ error: 'Group not found.' });
     if (!isAdmin(group, req.user.id)) return res.status(403).json({ error: 'Only admins can remove members.' });
+    const removedUserId = req.params.userId;
     group.members.pull(req.params.userId);
     group.admins.pull(req.params.userId);
     await group.save();
+    emitGroupUpdate(req, group, [removedUserId]);
     res.json({ group });
   } catch (error) {
     next(error);
@@ -120,8 +130,8 @@ router.delete('/:id/leave', async (req, res, next) => {
     if (!group) return res.status(404).json({ error: 'Group not found.' });
     group.members.pull(req.user.id);
     group.admins.pull(req.user.id);
-    if (group.members.length === 0) await group.deleteOne();
-    else await group.save();
+    await group.save();
+    emitGroupUpdate(req, group, [req.user.id]);
     res.json({ success: true });
   } catch (error) {
     next(error);

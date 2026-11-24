@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import { Group, User, Message } from '../models/index.js';
+import { Group, Media, User, Message } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { serializeVisibleUser } from '../utils/privacy.js';
 
@@ -67,14 +67,25 @@ router.put('/profile', async (req, res, next) => {
     const bio = String(req.body.bio || '').trim();
     if (!name || name.length > 80) return res.status(400).json({ error: 'Name must be 1–80 characters.' });
     if (bio.length > 100) return res.status(400).json({ error: 'Bio must be at most 100 characters.' });
-    const { photoURL } = req.body;
+    const { photoURL, photoMediaId } = req.body;
     if (photoURL !== undefined && typeof photoURL !== 'string') {
       return res.status(400).json({ error: 'Profile photo URL must be a string.' });
+    }
+    if (photoMediaId !== undefined) {
+      if (!mongoose.isValidObjectId(photoMediaId)) return res.status(400).json({ error: 'Invalid profile photo.' });
+      const media = await Media.findOne({ _id: photoMediaId, owner: req.user.id, resourceType: 'image' });
+      if (!media || media.secureURL !== photoURL) return res.status(400).json({ error: 'The profile photo is not available.' });
+      req.user.photoMedia = media._id;
+      req.user.hasCustomPhoto = true;
+    } else if (photoURL !== undefined && photoURL !== req.user.photoURL) {
+      req.user.photoMedia = null;
+      req.user.hasCustomPhoto = true;
     }
     req.user.name = name;
     req.user.bio = bio;
     if (photoURL !== undefined) req.user.photoURL = photoURL;
     await req.user.save();
+    req.app.get('io').to(`user:${req.user.id}`).emit('account_updated', req.user.toObject());
     res.json({ user: req.user });
   } catch (error) {
     next(error);
@@ -101,6 +112,7 @@ router.put('/privacy', async (req, res, next) => {
       if (req.body[field] !== undefined) req.user.privacy[field] = req.body[field];
     }
     await req.user.save();
+    req.app.get('io').to(`user:${req.user.id}`).emit('account_updated', req.user.toObject());
     res.json({ user: req.user });
   } catch (error) {
     next(error);
@@ -113,7 +125,9 @@ router.post('/block/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid user id.' });
     }
     if (!await User.exists({ _id: req.params.id })) return res.status(404).json({ error: 'User not found.' });
-    await User.updateOne({ _id: req.user.id }, { $addToSet: { blockedUsers: req.params.id } });
+    req.user.blockedUsers.addToSet(req.params.id);
+    await req.user.save();
+    req.app.get('io').to(`user:${req.user.id}`).emit('account_updated', req.user.toObject());
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -122,8 +136,30 @@ router.post('/block/:id', async (req, res, next) => {
 
 router.delete('/block/:id', async (req, res, next) => {
   try {
-    await User.updateOne({ _id: req.user.id }, { $pull: { blockedUsers: req.params.id } });
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid user id.' });
+    req.user.blockedUsers.pull(req.params.id);
+    await req.user.save();
+    req.app.get('io').to(`user:${req.user.id}`).emit('account_updated', req.user.toObject());
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/settings', async (req, res, next) => {
+  try {
+    const { theme, notifications } = req.body;
+    if (theme !== undefined && !['light', 'dark'].includes(theme)) {
+      return res.status(400).json({ error: 'Theme must be light or dark.' });
+    }
+    if (notifications !== undefined && typeof notifications !== 'boolean') {
+      return res.status(400).json({ error: 'notifications must be a boolean.' });
+    }
+    if (theme !== undefined) req.user.settings.theme = theme;
+    if (notifications !== undefined) req.user.settings.notifications = notifications;
+    await req.user.save();
+    req.app.get('io').to(`user:${req.user.id}`).emit('account_updated', req.user.toObject());
+    res.json({ user: req.user });
   } catch (error) {
     next(error);
   }

@@ -5,8 +5,31 @@ const api = axios.create({
   timeout: 15000,
 });
 
+const TOKEN_KEY = 'chatbox-token';
+
+export function getAuthToken() {
+  const saved = localStorage.getItem(TOKEN_KEY);
+  if (saved) return saved;
+  const legacyToken = sessionStorage.getItem(TOKEN_KEY);
+  if (legacyToken) {
+    localStorage.setItem(TOKEN_KEY, legacyToken);
+    sessionStorage.removeItem(TOKEN_KEY);
+  }
+  return legacyToken;
+}
+
+export function setAuthToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.removeItem(TOKEN_KEY);
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+}
+
 api.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('chatbox-token');
+  const token = getAuthToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

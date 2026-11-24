@@ -1,7 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
-import { User } from '../models/index.js';
+import { Message, Notification, Session, User } from '../models/index.js';
 
 export function attachSocketServer(httpServer, allowedOrigin) {
   const io = new Server(httpServer, {
@@ -15,10 +15,20 @@ export function attachSocketServer(httpServer, allowedOrigin) {
     transports: ['websocket', 'polling'],
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     try {
       const payload = jwt.verify(socket.handshake.auth?.token, process.env.JWT_SECRET);
-      socket.data.userId = payload.sub;
+      if (payload.sid) {
+        const session = await Session.findOne({
+          _id: payload.sid,
+          user: payload.sub,
+          revokedAt: null,
+          expiresAt: { $gt: new Date() },
+        }).select('_id');
+        if (!session) return next(new Error('Unauthorized'));
+        socket.data.sessionId = session.id;
+      }
+      socket.data.userId = String(payload.sub);
       next();
     } catch {
       next(new Error('Unauthorized'));
@@ -33,6 +43,23 @@ export function attachSocketServer(httpServer, allowedOrigin) {
     socket.join(room);
     try {
       await User.findByIdAndUpdate(userId, { isOnline: true });
+      if (socket.data.sessionId) {
+        await Session.findByIdAndUpdate(socket.data.sessionId, { lastSeenAt: new Date() });
+      }
+      const unreadNotifications = await Notification.countDocuments({ recipient: userId, readAt: null });
+      await Notification.updateMany(
+        { recipient: userId, deliveredAt: null },
+        { $set: { deliveredAt: new Date() } },
+      );
+      const pendingSenders = await Message.distinct('sender', { receiver: userId, status: 'sent' });
+      await Message.updateMany(
+        { receiver: userId, status: 'sent' },
+        { $set: { status: 'delivered' } },
+      );
+      for (const senderId of pendingSenders) {
+        io.to(`user:${senderId}`).emit('message_status_update', { from: userId, status: 'delivered' });
+      }
+      socket.emit('pending_notifications', { count: unreadNotifications });
       socket.broadcast.emit('user_online', userId);
     } catch (error) {
       console.error('Presence update failed:', error.message);
