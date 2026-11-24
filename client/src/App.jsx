@@ -320,6 +320,8 @@ function AppShell() {
   const [menuMessage, setMenuMessage] = useState(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [viewingUser, setViewingUser] = useState(null);
+  const [viewingUserLoading, setViewingUserLoading] = useState(false);
   const [viewingStatus, setViewingStatus] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [call, setCall] = useState(null);
@@ -340,6 +342,7 @@ function AppShell() {
   const typingTimer = useRef(null);
   const typingActive = useRef(false);
   const searchRequestRef = useRef(0);
+  const profileLookupRef = useRef(0);
   const activeRef = useRef(active);
   const userRef = useRef(user);
   const endCallRef = useRef(null);
@@ -598,6 +601,49 @@ function AppShell() {
     } finally {
       if (requestId === searchRequestRef.current) setSearching(false);
     }
+  }
+
+  async function openUserProfile(person) {
+    const id = typeof person === 'string' ? person : person?._id || person?.id;
+    if (!id) {
+      toast.error('This profile is unavailable.');
+      return;
+    }
+    if (String(id) === String(userId)) {
+      profileLookupRef.current += 1;
+      setViewingUser(null);
+      setViewingUserLoading(false);
+      setShowProfile(true);
+      return;
+    }
+
+    const requestId = ++profileLookupRef.current;
+    setViewingUser({ ...(typeof person === 'object' && person ? person : {}), _id: id });
+    setViewingUserLoading(true);
+    try {
+      const { data } = await api.get(`/api/users/${encodeURIComponent(id)}`);
+      if (profileLookupRef.current === requestId) setViewingUser(data.user);
+    } catch (error) {
+      if (profileLookupRef.current === requestId) {
+        setViewingUser(null);
+        toast.error(getErrorMessage(error));
+      }
+    } finally {
+      if (profileLookupRef.current === requestId) setViewingUserLoading(false);
+    }
+  }
+
+  function closeUserProfile() {
+    profileLookupRef.current += 1;
+    setViewingUser(null);
+    setViewingUserLoading(false);
+  }
+
+  function messageViewedUser() {
+    if (!viewingUser) return;
+    const person = viewingUser;
+    closeUserProfile();
+    void openConversation(person);
   }
 
   useEffect(() => {
@@ -868,7 +914,7 @@ function AppShell() {
               {query && <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); setResults([]); setSearching(false); setSearchSubmitted(false); searchRequestRef.current += 1; }}><X size={15} /></button>}
               <button className="username-search-submit" type="submit" disabled={normalizeSearchUsername(query).length < 3 || searching}>Search</button>
             </div>
-            <p className="user-search-hint">💡 You need the exact username to start a chat</p>
+            <p className="user-search-hint">💡 Type exact username to find someone</p>
           </form>
         </header>
 
@@ -880,24 +926,33 @@ function AppShell() {
                 <p className="quiet-state">Searching for that username…</p>
               ) : results.length ? results.map((person) => (
                 <article key={person._id} className="person-row search-result-row">
-                  <Avatar person={person} online={person.isOnline} />
-                  <span className="person-copy"><b>{person.name}</b><small>@{person.username}</small></span>
-                  <button className="search-start-chat" onClick={() => openConversation(person)}>Start chat</button>
+                  <button type="button" className="search-result-profile" aria-label={`View ${person.name}'s profile`} onClick={() => void openUserProfile(person)}>
+                    <Avatar person={person} online={person.isOnline} />
+                    <span className="person-copy"><b>{person.name}</b><small>@{person.username}</small></span>
+                  </button>
+                  <button type="button" className="search-start-chat" onClick={() => openConversation(person)}>Start chat</button>
                 </article>
-              )) : <p className="quiet-state">No user found. Ask for their exact username.</p>}
+              )) : <p className="quiet-state">No user found. Ask for their @username.</p>}
             </section>
           ) : section === 'chats' ? (
             <>
               {statuses.length > 0 && <StatusStrip statuses={statuses} currentUser={user} onCreate={() => setSection('status')} onOpenStatus={(status) => { setViewingStatus(status); if (status.user?._id !== user._id) markStatusViewed(status._id, loadData); }} />}
               <div className="section-heading section-heading-row"><span>RECENT</span><button aria-label="New group" onClick={() => setShowNewGroup(true)}><Plus size={16} /> New group</button></div>
               {conversations.map((entry) => (
-                <button key={entry.user._id} className={`conversation-row ${active?.id === entry.user._id ? 'selected' : ''}`} onClick={() => openConversation(entry.user)}>
-                  <Avatar person={entry.user} online={entry.user.isOnline} />
-                  <span className="conversation-copy">
-                    <span className="conversation-line"><b>{entry.user.name}</b><time>{formatTime(entry.lastMessage.createdAt)}</time></span>
-                    <span className="conversation-line"><small>{entry.lastMessage.sender?._id === user._id && <MessageStatusMark status={entry.lastMessage.status} />} {entry.lastMessage.content || 'Attachment'}</small>{entry.unread > 0 && <i className="unread-badge">{entry.unread}</i>}</span>
-                  </span>
-                </button>
+                <div key={entry.user._id} className={`conversation-row ${active?.id === entry.user._id ? 'selected' : ''}`}>
+                  <button type="button" className="conversation-profile-avatar" aria-label={`View ${entry.user.name}'s profile`} onClick={() => void openUserProfile(entry.user)}>
+                    <Avatar person={entry.user} online={entry.user.isOnline} />
+                  </button>
+                  <div className="conversation-copy">
+                    <div className="conversation-line">
+                      <button type="button" className="conversation-profile-name" onClick={() => void openUserProfile(entry.user)}>{entry.user.name}</button>
+                      <time>{formatTime(entry.lastMessage.createdAt)}</time>
+                    </div>
+                    <button type="button" className="conversation-open" aria-label={`Open chat with ${entry.user.name}`} onClick={() => openConversation(entry.user)}>
+                      <span className="conversation-line"><small>{entry.lastMessage.sender?._id === user._id && <MessageStatusMark status={entry.lastMessage.status} />} {entry.lastMessage.content || 'Attachment'}</small>{entry.unread > 0 && <i className="unread-badge">{entry.unread}</i>}</span>
+                    </button>
+                  </div>
+                </div>
               ))}
               {groups.map((group) => (
                 <button key={group._id} className={`conversation-row ${active?.id === group._id ? 'selected' : ''}`} onClick={() => openConversation(group, 'group')}>
@@ -905,7 +960,7 @@ function AppShell() {
                   <span className="conversation-copy"><span className="conversation-line"><b>{group.name}</b><small>GROUP</small></span><span className="conversation-line"><small>{group.members.length} members</small></span></span>
                 </button>
               ))}
-              {!conversations.length && !groups.length && <EmptyPanel title="A good conversation starts here" detail="Search for a friend by name or username to say hello." />}
+              {!conversations.length && !groups.length && <EmptyPanel title="A good conversation starts here" detail="Search for a friend by exact username to say hello." />}
             </>
           ) : section === 'status' ? (
             <StatusPage statuses={statuses} user={user} onChanged={loadData} />
@@ -935,10 +990,17 @@ function AppShell() {
           <>
             <header className="chat-header">
               <button className="mobile-back icon-button" aria-label="Back to messages" onClick={() => setActive(null)}><ArrowLeft size={20} /></button>
-              <button className="header-person" onClick={() => setShowProfile(true)}>
-                <Avatar person={activePerson} online={activePerson?.isOnline} />
-                <span><b>{activePerson?.name || activePerson?.username}</b><small>{active?.type === 'group' ? `${activePerson?.members?.length || 0} members` : typing ? 'typing…' : activePerson?.isOnline ? 'here now' : formatLastSeen(activePerson?.lastSeen)}</small></span>
-              </button>
+              {active.type === 'user' ? (
+                <button type="button" className="header-person" aria-label={`View ${activePerson?.name || 'user'}'s profile`} onClick={() => void openUserProfile(activePerson)}>
+                  <Avatar person={activePerson} online={activePerson?.isOnline} />
+                  <span><b>{activePerson?.name || activePerson?.username}</b><small>{typing ? 'typing…' : activePerson?.isOnline ? 'here now' : formatLastSeen(activePerson?.lastSeen)}</small></span>
+                </button>
+              ) : (
+                <div className="header-person header-person-static">
+                  <Avatar person={activePerson} />
+                  <span><b>{activePerson?.name || activePerson?.username}</b><small>{activePerson?.members?.length || 0} members</small></span>
+                </div>
+              )}
               <div className="chat-header-actions">
                 {active.type === 'user' && <>
                   <button className="icon-button" aria-label="Start voice call" onClick={() => startCall('voice')}><Phone size={19} /></button>
@@ -949,8 +1011,17 @@ function AppShell() {
             </header>
             <div className="message-scroll" ref={scrollRef} onScroll={handleMessageScroll}>
               <div className="conversation-intro">
-                <Avatar person={activePerson} size="large" />
-                <b>{activePerson?.name || activePerson?.username}</b>
+                {active.type === 'user' ? (
+                  <button type="button" className="conversation-intro-profile" aria-label={`View ${activePerson?.name || 'user'}'s profile`} onClick={() => void openUserProfile(activePerson)}>
+                    <Avatar person={activePerson} size="large" />
+                    <b>{activePerson?.name || activePerson?.username}</b>
+                  </button>
+                ) : (
+                  <div className="conversation-intro-profile-static">
+                    <Avatar person={activePerson} size="large" />
+                    <b>{activePerson?.name || activePerson?.username}</b>
+                  </div>
+                )}
                 {active.type === 'user' && <span>@{activePerson?.username} · {activePerson?.bio}</span>}
                 {active.type === 'group' && <span>Created {formatDate(activePerson?.createdAt)}</span>}
                 <small>Messages are just between you and {active.type === 'group' ? 'the group' : activePerson?.name}.</small>
@@ -964,8 +1035,11 @@ function AppShell() {
                 return (
                   <div key={message._id} className={`message-wrap ${own ? 'message-own' : ''}`}>
                     {showDate && <div className="date-divider"><span>{formatDate(message.createdAt)}</span></div>}
+                    {!own && <button type="button" className="message-sender-profile" aria-label={`View ${message.sender?.name || 'sender'}'s profile`} onClick={() => void openUserProfile(message.sender)}>
+                      <Avatar person={message.sender} size="small" />
+                    </button>}
                     <div className={`message-bubble ${own ? 'outgoing' : 'incoming'}`}>
-                      {active.type === 'group' && !own && <b className="sender-name">{message.sender?.name}</b>}
+                      {active.type === 'group' && !own && <button type="button" className="sender-name" onClick={() => void openUserProfile(message.sender)}>{message.sender?.name || 'ChatBox user'}</button>}
                       {message.replyTo && <div className="quoted-message">{message.replyTo.content || 'Attachment'}</div>}
                       {message.type === 'image' && (
                         <div className="image-message-card">
@@ -1007,6 +1081,7 @@ function AppShell() {
       </main>
 
       {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onSave={saveUser} onUpdateSettings={updateSettings} onLogout={onLogout} onDeleteAccount={onDeleteAccount} />}
+      {viewingUser && <UserProfileModal user={viewingUser} loading={viewingUserLoading} onClose={closeUserProfile} onMessage={messageViewedUser} />}
       {showNewGroup && <NewGroupModal onClose={() => setShowNewGroup(false)} onCreated={(group) => { setGroups((current) => [group, ...current]); openConversation(group, 'group'); setShowNewGroup(false); }} />}
       {viewingStatus && <StoryViewer status={viewingStatus} onClose={() => setViewingStatus(null)} />}
       {previewImage && <ImagePreviewModal message={previewImage} userId={user._id} onClose={() => setPreviewImage(null)} onReact={reactToMessage} />}
@@ -1208,6 +1283,28 @@ function NewGroupModal({ onClose, onCreated }) {
         </div>
         <button className="primary-button full-button" disabled={busy || !name.trim() || !selected.length}>{busy ? 'Creating…' : `Create group${selected.length ? ` · ${selected.length + 1} people` : ''}`}</button>
       </form>
+    </Modal>
+  );
+}
+
+function UserProfileModal({ user, loading, onClose, onMessage }) {
+  const isOnline = Boolean(user.isOnline);
+  return (
+    <Modal title="Profile" onClose={onClose}>
+      <div className="public-profile">
+        <div className="public-profile-avatar"><Avatar person={user} size="xlarge" /></div>
+        <h3>{user.name || 'ChatBox user'}</h3>
+        {user.username && <strong>@{user.username}</strong>}
+        <p className="public-profile-presence">
+          <i className={!loading && isOnline ? 'public-profile-online' : ''} />
+          {loading ? 'Checking status…' : isOnline ? 'Online' : 'Offline'}
+        </p>
+        {user.bio && <p className="public-profile-bio">{user.bio}</p>}
+        {loading && <p className="public-profile-loading" role="status">Loading profile…</p>}
+        <button type="button" className="primary-button" disabled={loading} onClick={onMessage}>
+          <MessageCircle size={16} /> Message
+        </button>
+      </div>
     </Modal>
   );
 }
