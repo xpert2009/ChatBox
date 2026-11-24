@@ -106,7 +106,7 @@ function Avatar({ person, size = 'normal', online = false }) {
   return (
     <span className={`avatar avatar-${size}`}>
       {person?.photoURL
-        ? <img src={person.photoURL} alt="" referrerPolicy="no-referrer" />
+        ? <img src={person.photoURL} alt="" referrerPolicy="no-referrer" loading="lazy" decoding="async" />
         : <span aria-hidden="true">{label.slice(0, 1).toUpperCase()}</span>}
       {online && <i className="online-dot" aria-label="Online" />}
     </span>
@@ -124,8 +124,13 @@ function MessageStatusMark({ status }) {
 function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showConnectionHint, setShowConnectionHint] = useState(false);
+  const connectionHintTimerRef = useRef(null);
+  const authExchangePendingRef = useRef(false);
   const setUser = useAuthStore((state) => state.setUser);
   const navigate = useNavigate();
+
+  useEffect(() => () => window.clearTimeout(connectionHintTimerRef.current), []);
 
   useEffect(() => {
     if (!auth) return undefined;
@@ -135,8 +140,16 @@ function LoginPage() {
         clearAuthToken();
         return;
       }
+      authExchangePendingRef.current = true;
+      setBusy(true);
+      setShowConnectionHint(false);
+      window.clearTimeout(connectionHintTimerRef.current);
+      connectionHintTimerRef.current = window.setTimeout(() => {
+        if (active) setShowConnectionHint(true);
+      }, 3000);
       try {
         const idToken = await firebaseUser.getIdToken();
+        if (!active) return;
         const { data } = await api.post('/api/auth/google', { idToken });
         if (!active) return;
         setAuthToken(data.token);
@@ -145,10 +158,19 @@ function LoginPage() {
       } catch (loginError) {
         clearAuthToken();
         if (active) setError(getErrorMessage(loginError));
+      } finally {
+        window.clearTimeout(connectionHintTimerRef.current);
+        connectionHintTimerRef.current = null;
+        authExchangePendingRef.current = false;
+        if (active) {
+          setBusy(false);
+          setShowConnectionHint(false);
+        }
       }
     });
     return () => {
       active = false;
+      window.clearTimeout(connectionHintTimerRef.current);
       unsubscribe();
     };
   }, [navigate, setUser]);
@@ -157,13 +179,17 @@ function LoginPage() {
     if (!auth) return setError('Google sign-in is not configured. Add the Firebase values to client/.env.');
     setBusy(true);
     setError('');
+    setShowConnectionHint(false);
     try {
       await signInWithPopup(auth, googleProvider);
       // onAuthStateChanged exchanges the Firebase ID token and creates the app session.
     } catch (loginError) {
       setError(getErrorMessage(loginError));
     } finally {
-      setBusy(false);
+      if (!authExchangePendingRef.current) {
+        setBusy(false);
+        setShowConnectionHint(false);
+      }
     }
   }
 
@@ -188,6 +214,7 @@ function LoginPage() {
           {busy ? <span className="spinner" /> : <GoogleMark />}
           {busy ? 'Connecting…' : 'Continue with Google'}
         </button>
+        {showConnectionHint && <p className="connection-hint" role="status">Connecting to ChatBox is taking a little longer than usual…</p>}
         {!isFirebaseConfigured && <p className="setup-hint">Add your Firebase web app settings to <code>client/.env</code> to enable sign-in.</p>}
         <p className="login-terms">By continuing, you agree to keep this a kind place.</p>
       </section>

@@ -200,6 +200,7 @@
   --aurora-green: #25D366;
   --aurora-purple: #7c3aed;
   --aurora-blue: #2563eb;
+  --aurora-play-state: running;
   --surface: rgba(14, 17, 21, .78);
   --surface-soft: rgba(10, 12, 16, .7);
   --surface-hover: rgba(255, 255, 255, .085);
@@ -220,9 +221,14 @@
 }
 
 @keyframes aurora {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  0% { transform: translate3d(-1.5%, 0, 0); }
+  50% { transform: translate3d(1.5%, 0, 0); }
+  100% { transform: translate3d(-1.5%, 0, 0); }
+}
+
+@keyframes status-aurora {
+  0% { transform: translateZ(0) rotate(0deg); }
+  100% { transform: translateZ(0) rotate(360deg); }
 }
 
 body {
@@ -244,12 +250,14 @@ body {
     radial-gradient(ellipse at 18% 28%, rgba(37, 211, 102, .2), transparent 34%),
     radial-gradient(ellipse at 82% 22%, rgba(124, 58, 237, .2), transparent 37%),
     radial-gradient(ellipse at 62% 80%, rgba(37, 99, 235, .2), transparent 38%);
-  background-size: 200% 200%;
   content: "";
   filter: blur(48px);
   opacity: .8;
   pointer-events: none;
+  transform: translateZ(0);
+  will-change: transform;
   animation: aurora 26s ease-in-out infinite;
+  animation-play-state: var(--aurora-play-state, running);
 }
 
 .app-screen {
@@ -484,17 +492,32 @@ body {
 }
 
 .status-ring {
+  position: relative;
+  isolation: isolate;
   border: 1px solid transparent;
-  background:
-    linear-gradient(rgba(10, 10, 10, .95), rgba(10, 10, 10, .95)) padding-box,
-    linear-gradient(135deg, var(--aurora-green), var(--aurora-purple), var(--aurora-blue)) border-box;
-  background-size: 100% 100%, 220% 220%;
-  animation: aurora 9s ease infinite;
+  background: transparent;
   box-shadow: 0 0 18px rgba(124, 58, 237, .16);
 }
 
+.status-ring::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(var(--aurora-green), var(--aurora-purple), var(--aurora-blue), var(--aurora-green));
+  content: "";
+  animation: status-aurora 9s ease infinite;
+  animation-play-state: var(--aurora-play-state, running);
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.status-ring .avatar {
+  z-index: 1;
+}
+
 .status-mini .status-ring {
-  border: 1px solid transparent;
+  border: 0;
 }
 
 .status-row,
@@ -713,7 +736,7 @@ select option {
 
 @media (prefers-reduced-motion: reduce) {
   #root::before,
-  .status-ring {
+  .status-ring::before {
     animation: none;
   }
 }
@@ -1016,4 +1039,12 @@ select option {
 .group-row .avatar {
   border-color: rgba(37, 211, 102, .4);
   box-shadow: 0 0 0 3px rgba(37, 211, 102, .08), 0 0 22px rgba(124, 58, 237, .12);
+}
+
+.connection-hint {
+  margin: 10px 0 0;
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
 }
