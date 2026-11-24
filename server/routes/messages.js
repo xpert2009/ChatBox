@@ -173,10 +173,10 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.put('/:id/reaction', async (req, res, next) => {
+async function updateMessageReaction(req, res, next) {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid message id.' });
-    const { emoji } = req.body || {};
+    const emoji = req.body?.emoji ?? req.body?.reaction;
     if (typeof emoji !== 'string' || !MESSAGE_REACTION_EMOJIS.includes(emoji)) {
       return res.status(400).json({ error: 'Choose a supported reaction.' });
     }
@@ -215,7 +215,10 @@ router.put('/:id/reaction', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+}
+
+router.put('/:id/reaction', updateMessageReaction);
+router.put('/:id', updateMessageReaction);
 
 router.post('/', async (req, res, next) => {
   try {
