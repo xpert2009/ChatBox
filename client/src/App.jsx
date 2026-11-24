@@ -4,8 +4,8 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText,
-  Image, LogOut, MessageCircle, Mic, MicOff, Moon, MoreHorizontal, Paperclip,
-  Phone, PhoneOff, Plus, Search, Send, Settings, Smile, Sun, UserPlus,
+  Image, LogOut, MessageCircle, Mic, MicOff, MoreHorizontal, Paperclip,
+  Phone, PhoneOff, Plus, Search, Send, Settings, Smile, UserPlus,
   Video, VideoOff, X,
 } from 'lucide-react';
 import { onAuthStateChanged, signInWithPopup, signOut } from '@firebase/auth';
@@ -289,7 +289,6 @@ function AppShell() {
   const [text, setText] = useState('');
   const [reply, setReply] = useState(null);
   const [busy, setBusy] = useState(false);
-  const theme = user?.settings?.theme || localStorage.getItem('chatbox-theme') || 'light';
   const [menuMessage, setMenuMessage] = useState(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -477,9 +476,8 @@ function AppShell() {
   }, [loadData, saveUser, userId]);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('chatbox-theme', theme);
-  }, [theme]);
+    document.documentElement.dataset.theme = 'dark';
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -801,7 +799,6 @@ function AppShell() {
           <RailButton icon={<UserPlus />} label="Groups" active={section === 'groups'} onClick={() => setSection('groups')} />
         </div>
         <div className="rail-bottom">
-          <button className="rail-icon" aria-label="Toggle dark mode" onClick={() => updateSettings({ theme: theme === 'light' ? 'dark' : 'light' })}>{theme === 'light' ? <Moon /> : <Sun />}</button>
           <button className="rail-profile" aria-label="Open profile" onClick={() => setShowProfile(true)}><Avatar person={user} size="small" /></button>
         </div>
       </aside>
@@ -1133,7 +1130,7 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState('profile');
-  const settings = { theme: 'light', notifications: true, ...user.settings };
+  const settings = { notifications: true, ...user.settings };
   const [privacy, setPrivacy] = useState({
     lastSeen: 'everyone',
     photo: 'everyone',
@@ -1251,7 +1248,7 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
         <label className="privacy-toggle"><span><b>Read receipts</b><small>Share when you have read a message</small></span><input type="checkbox" checked={privacy.readReceipts} onChange={(event) => savePrivacy('readReceipts', event.target.checked)} /></label>
         <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
       </div> : <div className="privacy-panel">
-        <label className="privacy-setting"><span><b>Appearance</b><small>Sync your theme across devices</small></span><select value={settings.theme} onChange={(event) => saveSetting('theme', event.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <div className="privacy-setting"><span><b>Appearance</b><small>ChatBox Aurora theme</small></span><strong className="theme-badge">Dark</strong></div>
         <label className="privacy-toggle"><span><b>Notifications</b><small>Keep message notifications enabled</small></span><input type="checkbox" checked={settings.notifications} onChange={(event) => saveSetting('notifications', event.target.checked)} /></label>
         <button type="button" className="danger-outline-button" onClick={() => setShowDeleteConfirmation(true)}>Delete account forever</button>
         <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
