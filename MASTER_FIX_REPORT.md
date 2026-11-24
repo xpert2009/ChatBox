@@ -6,6 +6,9 @@ Audited eight areas from the reported ChatBox issues. Fixed profile navigation a
 read-receipt colors; the other listed features were already implemented and were
 verified against the current source and regression tests.
 
+Also corrected the desktop app shell layout after live inspection showed the
+sidebar spanning the full viewport at 1027px and the inbox pushed below it.
+
 ## Audit results
 
 | Area | Result |
