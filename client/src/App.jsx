@@ -40,6 +40,14 @@ function Avatar({ person, size = 'normal', online = false }) {
   );
 }
 
+function MessageStatusMark({ status }) {
+  const isRead = status === 'read';
+  const isDelivered = status === 'delivered';
+  const Icon = isRead || isDelivered ? CheckCheck : Check;
+  const className = isRead ? 'read-check' : isDelivered ? 'delivered-check' : 'sent-check';
+  return <Icon size={14} className={className} aria-label={`Message ${status || 'sent'}`} />;
+}
+
 function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -745,7 +753,7 @@ function AppShell() {
                   <Avatar person={entry.user} online={entry.user.isOnline} />
                   <span className="conversation-copy">
                     <span className="conversation-line"><b>{entry.user.name}</b><time>{formatTime(entry.lastMessage.createdAt)}</time></span>
-                    <span className="conversation-line"><small>{entry.lastMessage.sender?._id === user._id && <CheckCheck size={14} className="sent-check" />} {entry.lastMessage.content || 'Attachment'}</small>{entry.unread > 0 && <i className="unread-badge">{entry.unread}</i>}</span>
+                    <span className="conversation-line"><small>{entry.lastMessage.sender?._id === user._id && <MessageStatusMark status={entry.lastMessage.status} />} {entry.lastMessage.content || 'Attachment'}</small>{entry.unread > 0 && <i className="unread-badge">{entry.unread}</i>}</span>
                   </span>
                 </button>
               ))}
@@ -822,7 +830,7 @@ function AppShell() {
                       {message.type === 'audio' && <audio src={message.fileURL} controls />}
                       {message.type === 'document' && <a className="document-link" href={message.fileURL} target="_blank" rel="noreferrer"><FileText size={23} /><span><b>{message.fileName || 'Document'}</b><small>{formatSize(message.fileSize)}</small></span></a>}
                       {message.type === 'text' && message.content && <p>{message.content}</p>}
-                      <span className="message-meta"><time>{formatTime(message.createdAt)}</time>{own && (message.status === 'read' ? <CheckCheck size={14} className="read-check" /> : <Check size={14} />)}</span>
+                      <span className="message-meta"><time>{formatTime(message.createdAt)}</time>{own && <MessageStatusMark status={message.status} />}</span>
                       <button className="message-more" aria-label="Message actions" onClick={() => setMenuMessage(menuMessage === message._id ? null : message._id)}><MoreHorizontal size={14} /></button>
                       {menuMessage === message._id && <div className="message-menu"><button onClick={() => { setReply(message); setMenuMessage(null); }}>Reply</button><button onClick={() => navigator.clipboard.writeText(message.content || message.fileURL).then(() => toast.success('Copied'))}>Copy</button></div>}
                     </div>

@@ -24,7 +24,7 @@ function makeUsername(name) {
 
 router.post('/google', async (req, res, next) => {
   try {
-    const { idToken } = req.body;
+    const { idToken } = req.body || {};
     if (typeof idToken !== 'string' || !idToken) {
       return res.status(400).json({ error: 'A Firebase ID token is required.' });
     }

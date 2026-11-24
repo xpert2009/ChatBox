@@ -55,7 +55,7 @@
 .conversation-line time { flex: none; color: var(--ink-faint); font-size: 9px; }
 .conversation-line small, .person-copy small { display: flex; align-items: center; gap: 4px; overflow: hidden; color: var(--ink-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-line small svg { flex: none; }
-.sent-check, .read-check { color: #6289a3; }
+.sent-check, .read-check { color: #6289a3; }.delivered-check { color: var(--ink-soft); }
 .unread-badge { display: grid; flex: none; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 10px; background: var(--brand); color: white; font: 700 9px 'DM Sans'; font-style: normal; }
 .row-action { color: var(--brand); }
 .inbox-footer { padding: 10px; border-top: 1px solid var(--line); }
