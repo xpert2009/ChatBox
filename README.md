@@ -1,6 +1,6 @@
-# ChatBox
+# Dream Chat
 
-ChatBox is a responsive messaging app built with React, Vite, Tailwind CSS, Express, MongoDB, Firebase Google sign-in, Socket.IO, Cloudinary, and browser WebRTC.
+Dream Chat is a responsive messaging app built with React, Vite, Tailwind CSS, Express, MongoDB, Firebase Google sign-in, Socket.IO, Cloudinary, and browser WebRTC.
 
 ## What works
 

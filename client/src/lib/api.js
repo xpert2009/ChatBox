@@ -25,10 +25,10 @@ export async function pingBackendHealth() {
       cache: 'no-store',
     });
     if (response.type !== 'opaque' && !response.ok) {
-      console.warn(`ChatBox backend health ping returned HTTP ${response.status}.`);
+      console.warn(`Dream Chat backend health ping returned HTTP ${response.status}.`);
     }
   } catch (error) {
-    console.warn('ChatBox backend health ping failed:', error);
+    console.warn('Dream Chat backend health ping failed:', error);
   } finally {
     healthPingInFlight = false;
   }

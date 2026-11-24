@@ -102,7 +102,7 @@ function ImagePreviewModal({ message, userId, onClose, onReact }) {
 }
 
 function Avatar({ person, size = 'normal', online = false }) {
-  const label = person?.name || person?.username || 'ChatBox';
+  const label = person?.name || person?.username || 'Dream Chat';
   return (
     <span className={`avatar avatar-${size}`}>
       {person?.photoURL
@@ -203,10 +203,10 @@ function LoginPage() {
         <div className="art-orbit"><MessageCircle size={54} strokeWidth={1.4} /></div>
       </div>
       <section className="login-card">
-        <div className="brand-mark"><MessageCircle size={20} fill="currentColor" /><span>chatbox</span></div>
+        <div className="brand-mark"><MessageCircle size={20} fill="currentColor" /><span>Dream Chat</span></div>
         <div className="login-copy">
           <span className="eyebrow">YOUR PEOPLE, CLOSER</span>
-          <h1>Make room for<br /><em>good conversations.</em></h1>
+          <h1>Dream <em>Chat</em></h1>
           <p>A quieter corner of the internet for the people who matter most.</p>
         </div>
         {error && <div className="form-error" role="alert">{error}</div>}
@@ -214,7 +214,7 @@ function LoginPage() {
           {busy ? <span className="spinner" /> : <GoogleMark />}
           {busy ? 'Connecting…' : 'Continue with Google'}
         </button>
-        {showConnectionHint && <p className="connection-hint" role="status">Connecting to ChatBox is taking a little longer than usual…</p>}
+        {showConnectionHint && <p className="connection-hint" role="status">Connecting to Dream Chat is taking a little longer than usual…</p>}
         {!isFirebaseConfigured && <p className="setup-hint">Add your Firebase web app settings to <code>client/.env</code> to enable sign-in.</p>}
         <p className="login-terms">By continuing, you agree to keep this a kind place.</p>
       </section>
@@ -281,7 +281,7 @@ function SetupPage() {
       <form className="setup-card" onSubmit={submit}>
         <Avatar person={user} size="large" />
         <span className="eyebrow">ONE LAST THING</span>
-        <h1>Pick your little corner.</h1>
+        <h1>Set up Dream Chat.</h1>
         <p>Your username helps friends find you. You can change it later.</p>
         <label className="input-label" htmlFor="username">Your username</label>
         <div className="username-input"><span>@</span><input id="username" value={username} onChange={(event) => { setUsername(event.target.value); setAvailable(null); }} minLength={3} maxLength={20} required /></div>
@@ -289,7 +289,7 @@ function SetupPage() {
           {available === true ? 'Looks good — it’s yours.' : available === false ? 'That username is already taken.' : '3–20 letters, numbers, or underscores'}
         </div>
         {error && <div className="form-error" role="alert">{error}</div>}
-        <button className="primary-button full-button" disabled={busy || available !== true}>{busy ? 'Saving…' : 'Continue to ChatBox'}</button>
+        <button className="primary-button full-button" disabled={busy || available !== true}>{busy ? 'Saving…' : 'Continue to Dream Chat'}</button>
       </form>
     </main>
   );
@@ -818,7 +818,7 @@ function AppShell() {
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
       socketRef.current?.emit('call_answer', { to: incomingCall.from, answer });
-      const person = conversations.find((entry) => entry.user._id === incomingCall.from)?.user || { name: 'ChatBox contact' };
+      const person = conversations.find((entry) => entry.user._id === incomingCall.from)?.user || { name: 'Dream Chat contact' };
       setCall({ to: incomingCall.from, person, type: incomingCall.type, status: 'connecting', seconds: 0 });
       setIncomingCall(null);
     } catch (error) {
@@ -873,7 +873,7 @@ function AppShell() {
   return (
     <div className={`app-screen ${active ? 'conversation-open' : ''}`}>
       <aside className="side-rail">
-        <div className="rail-brand"><MessageCircle size={22} fill="currentColor" /><span>chatbox</span></div>
+        <div className="rail-brand"><MessageCircle size={22} fill="currentColor" /><span>Dream Chat</span></div>
         <div className="rail-actions" aria-label="Main navigation">
           <RailButton icon={<MessageCircle />} label="Chats" active={section === 'chats'} badge={conversations.reduce((sum, item) => sum + item.unread, 0)} onClick={() => setSection('chats')} />
           <RailButton icon={<CircleUserRound />} label="Status" active={section === 'status'} onClick={() => setSection('status')} />
@@ -1039,7 +1039,7 @@ function AppShell() {
                       <Avatar person={message.sender} size="small" />
                     </button>}
                     <div className={`message-bubble ${own ? 'outgoing' : 'incoming'}`}>
-                      {active.type === 'group' && !own && <button type="button" className="sender-name" onClick={() => void openUserProfile(message.sender)}>{message.sender?.name || 'ChatBox user'}</button>}
+                      {active.type === 'group' && !own && <button type="button" className="sender-name" onClick={() => void openUserProfile(message.sender)}>{message.sender?.name || 'Dream Chat user'}</button>}
                       {message.replyTo && <div className="quoted-message">{message.replyTo.content || 'Attachment'}</div>}
                       {message.type === 'image' && (
                         <div className="image-message-card">
@@ -1293,7 +1293,7 @@ function UserProfileModal({ user, loading, onClose, onMessage }) {
     <Modal title="Profile" onClose={onClose}>
       <div className="public-profile">
         <div className="public-profile-avatar"><Avatar person={user} size="xlarge" /></div>
-        <h3>{user.name || 'ChatBox user'}</h3>
+        <h3>{user.name || 'Dream Chat user'}</h3>
         {user.username && <strong>@{user.username}</strong>}
         <p className="public-profile-presence">
           <i className={!loading && isOnline ? 'public-profile-online' : ''} />
@@ -1441,8 +1441,8 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
       <div className="profile-tabs"><button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Profile</button><button className={tab === 'privacy' ? 'active' : ''} onClick={() => setTab('privacy')}>Privacy</button><button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Settings</button></div>
       {tab === 'profile' ? <form className="modal-form" onSubmit={save}>
         <div className="profile-preview"><label className="profile-photo-picker" aria-label="Change profile photo"><Avatar person={{ ...user, name, photoURL }} size="large" /><input type="file" accept="image/*" onChange={(event) => uploadPhoto(event.target.files?.[0])} /><span>{uploadingPhoto ? 'Uploading…' : 'Change photo'}</span></label><span><b>{name}</b><small>@{username}</small></span></div>
-        <section className="username-share-card" aria-label="Your ChatBox username">
-          <div><small>YOUR CHATBOX ID</small><strong>@{username}</strong></div>
+        <section className="username-share-card" aria-label="Your Dream Chat username">
+          <div><small>YOUR DREAM CHAT ID</small><strong>@{username}</strong></div>
           <button type="button" onClick={copyUsername} disabled={copyingUsername}><Copy size={15} />{copyingUsername ? 'Copying…' : 'Copy username'}</button>
           <p>Share your username so others can message you</p>
         </section>
@@ -1457,7 +1457,7 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
         <label className="privacy-toggle"><span><b>Read receipts</b><small>Share when you have read a message</small></span><input type="checkbox" checked={privacy.readReceipts} onChange={(event) => savePrivacy('readReceipts', event.target.checked)} /></label>
         <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
       </div> : <div className="privacy-panel">
-        <div className="privacy-setting"><span><b>Appearance</b><small>ChatBox Aurora theme</small></span><strong className="theme-badge">Dark</strong></div>
+        <div className="privacy-setting"><span><b>Appearance</b><small>Dream Chat Aurora theme</small></span><strong className="theme-badge">Dark</strong></div>
         <label className="privacy-toggle"><span><b>Notifications</b><small>Keep message notifications enabled</small></span><input type="checkbox" checked={settings.notifications} onChange={(event) => saveSetting('notifications', event.target.checked)} /></label>
         <button type="button" className="danger-outline-button" onClick={() => setShowDeleteConfirmation(true)}>Delete account forever</button>
         <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
@@ -1471,7 +1471,7 @@ function Modal({ title, onClose, children }) {
 }
 
 function IncomingCallModal({ details, person, onAccept, onDecline }) {
-  return <div className="call-overlay"><div className="incoming-call-card"><Avatar person={person || { name: 'Someone' }} size="xlarge" /><span className="eyebrow">INCOMING {details.type.toUpperCase()} CALL</span><h2>{person?.name || 'A ChatBox friend'}</h2><p>Someone would love to talk.</p><div className="call-actions"><button className="decline-call" aria-label="Decline call" onClick={onDecline}><PhoneOff /></button><button className="accept-call" aria-label="Accept call" onClick={onAccept}><Phone /></button></div></div></div>;
+  return <div className="call-overlay"><div className="incoming-call-card"><Avatar person={person || { name: 'Someone' }} size="xlarge" /><span className="eyebrow">INCOMING {details.type.toUpperCase()} CALL</span><h2>{person?.name || 'A Dream Chat friend'}</h2><p>Someone would love to talk.</p><div className="call-actions"><button className="decline-call" aria-label="Decline call" onClick={onDecline}><PhoneOff /></button><button className="accept-call" aria-label="Accept call" onClick={onAccept}><Phone /></button></div></div></div>;
 }
 
 function CallModal({ call, localVideoRef, remoteVideoRef, remoteAudioRef, muted, cameraOff, onMute, onCamera, onEnd }) {
@@ -1481,7 +1481,7 @@ function CallModal({ call, localVideoRef, remoteVideoRef, remoteAudioRef, muted,
     {video && <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />}
     {!video && <audio ref={remoteAudioRef} autoPlay />}
     {video && <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />}
-    <div className="call-card"><Avatar person={call.person} size="xlarge" /><span className="eyebrow">{call.status === 'calling' ? 'CALLING' : call.status === 'connected' ? 'CONNECTED' : 'CONNECTING'}</span><h2>{call.person?.name || 'ChatBox friend'}</h2><p>{call.status === 'connected' ? time : call.status === 'calling' ? 'Waiting for them to pick up…' : 'Finding a clear connection…'}</p><div className="call-actions"><button className={muted ? 'control-active' : ''} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} onClick={onMute}>{muted ? <MicOff /> : <Mic />}</button>{video && <button className={cameraOff ? 'control-active' : ''} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'} onClick={onCamera}>{cameraOff ? <VideoOff /> : <Video />}</button>}<button className="decline-call" aria-label="End call" onClick={onEnd}><PhoneOff /></button></div></div>
+    <div className="call-card"><Avatar person={call.person} size="xlarge" /><span className="eyebrow">{call.status === 'calling' ? 'CALLING' : call.status === 'connected' ? 'CONNECTED' : 'CONNECTING'}</span><h2>{call.person?.name || 'A Dream Chat friend'}</h2><p>{call.status === 'connected' ? time : call.status === 'calling' ? 'Waiting for them to pick up…' : 'Finding a clear connection…'}</p><div className="call-actions"><button className={muted ? 'control-active' : ''} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} onClick={onMute}>{muted ? <MicOff /> : <Mic />}</button>{video && <button className={cameraOff ? 'control-active' : ''} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'} onClick={onCamera}>{cameraOff ? <VideoOff /> : <Video />}</button>}<button className="decline-call" aria-label="End call" onClick={onEnd}><PhoneOff /></button></div></div>
   </div>;
 }
 

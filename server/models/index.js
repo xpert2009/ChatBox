@@ -29,7 +29,7 @@ const userSchema = new Schema({
   photoMedia: { type: Schema.Types.ObjectId, ref: 'Media', default: null },
   hasCustomPhoto: { type: Boolean, default: false },
   username: { type: String, unique: true, required: true, lowercase: true, trim: true },
-  bio: { type: String, default: 'Hey! I am using ChatBox', maxlength: 100 },
+  bio: { type: String, default: 'Hey! I am using Dream Chat', maxlength: 100 },
   isOnline: { type: Boolean, default: false },
   lastSeen: { type: Date, default: Date.now },
   blockedUsers: [{ type: Schema.Types.ObjectId, ref: 'User' }],

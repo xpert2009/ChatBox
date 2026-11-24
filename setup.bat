@@ -1,7 +1,7 @@
 @echo off
 setlocal
 echo ========================================
-echo    ChatBox - Auto Setup Starting...
+echo    Dream Chat - Auto Setup Starting...
 echo ========================================
 
 echo.

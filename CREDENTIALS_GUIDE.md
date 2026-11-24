@@ -1,8 +1,8 @@
-# ChatBox Credentials Guide
+# Dream Chat Credentials Guide
 
 ## Firebase
 
-1. Open https://firebase.google.com and add a project named `ChatBox`.
+1. Open https://firebase.google.com and add a project named `Dream Chat`.
 2. Disable Google Analytics for this project.
 3. Open Authentication, choose Get Started, enable Google, and select a support email.
 4. Open Project Settings, register a Web app, and copy:

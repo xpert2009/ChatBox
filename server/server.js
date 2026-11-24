@@ -108,7 +108,7 @@ app.set('io', io);
 const port = Number(process.env.PORT) || 5000;
 try {
   await connectDatabase();
-  httpServer.listen(port, () => console.log(`ChatBox API listening on ${port}`));
+  httpServer.listen(port, () => console.log(`Dream Chat API listening on ${port}`));
   void assignMissingUsernames().catch((error) => {
     console.error('Username migration failed:', error);
   });

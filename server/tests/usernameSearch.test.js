@@ -53,7 +53,7 @@ test('username search results contain only public, privacy-filtered fields', () 
   const result = createUsernameSearchResult({
     toObject: () => ({
       _id: 'public-user-id',
-      name: 'ChatBox User',
+      name: 'Dream Chat User',
       username: 'chatbox123',
       photoURL: 'https://example.test/avatar.png',
       isOnline: true,
@@ -64,7 +64,7 @@ test('username search results contain only public, privacy-filtered fields', () 
 
   assert.deepEqual(result, {
     _id: 'public-user-id',
-    displayName: 'ChatBox User',
+    displayName: 'Dream Chat User',
     username: 'chatbox123',
     photoURL: '',
     online: false,

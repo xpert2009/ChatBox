@@ -1,4 +1,4 @@
-# ChatBox deployment
+# Dream Chat deployment
 
 The client and API are deployed from the same GitHub repository (`main`) as two services.
 

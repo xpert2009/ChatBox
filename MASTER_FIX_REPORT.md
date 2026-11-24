@@ -1,8 +1,8 @@
-# ChatBox Master Fix Report
+# Dream Chat Master Fix Report
 
 ## Summary
 
-Audited eight areas from the reported ChatBox issues. Fixed profile navigation and
+Audited eight areas from the reported Dream Chat issues. Fixed profile navigation and
 read-receipt colors; the other listed features were already implemented and were
 verified against the current source and regression tests.
 
