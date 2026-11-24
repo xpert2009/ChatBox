@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Group, GroupMessage, Media, Message, Notification, User } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { serializeVisibleUser } from '../utils/privacy.js';
@@ -12,6 +13,18 @@ import {
 
 const router = Router();
 router.use(requireAuth);
+
+const messageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Sending too fast. Please slow down.' },
+  keyGenerator: (req) => req.user?.id
+    ? `user:${req.user.id}`
+    : `ip:${ipKeyGenerator(req.ip)}`,
+});
+router.use(messageLimiter);
 
 function messageFilterWithCursor(filter, cursor) {
   const before = getBeforeFilter(cursor);

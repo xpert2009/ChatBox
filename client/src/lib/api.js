@@ -5,27 +5,21 @@ const api = axios.create({
   timeout: 15000,
 });
 
-const TOKEN_KEY = 'chatbox-token';
+let authToken = null;
+const LEGACY_TOKEN_KEY = 'chatbox-token';
+localStorage.removeItem(LEGACY_TOKEN_KEY);
+sessionStorage.removeItem(LEGACY_TOKEN_KEY);
 
 export function getAuthToken() {
-  const saved = localStorage.getItem(TOKEN_KEY);
-  if (saved) return saved;
-  const legacyToken = sessionStorage.getItem(TOKEN_KEY);
-  if (legacyToken) {
-    localStorage.setItem(TOKEN_KEY, legacyToken);
-    sessionStorage.removeItem(TOKEN_KEY);
-  }
-  return legacyToken;
+  return authToken;
 }
 
 export function setAuthToken(token) {
-  localStorage.setItem(TOKEN_KEY, token);
-  sessionStorage.removeItem(TOKEN_KEY);
+  authToken = token || null;
 }
 
 export function clearAuthToken() {
-  localStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(TOKEN_KEY);
+  authToken = null;
 }
 
 api.interceptors.request.use((config) => {

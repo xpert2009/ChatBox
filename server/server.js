@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import express from 'express';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { connectDatabase } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
@@ -53,16 +54,32 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 app.use(express.json({ limit: '1mb' }));
-app.use('/api', rateLimit({
+const loginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 5,
+  message: { error: 'Too many login attempts. Wait 1 minute.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.body?.email
+    ? `email:${String(req.body.email).slice(0, 254).toLowerCase()}`
+    : `ip:${ipKeyGenerator(req.ip)}`,
+});
+const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 100,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Too many requests. Please try again in a minute.' },
-}));
+  keyGenerator: (req) => req.user?.id
+    ? `user:${req.user.id}`
+    : req.get('authorization')
+      ? `session:${createHash('sha256').update(req.get('authorization')).digest('hex').slice(0, 32)}`
+      : `ip:${ipKeyGenerator(req.ip)}`,
+});
+app.use('/api', apiLimiter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', loginLimiter, authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/groups', groupRoutes);

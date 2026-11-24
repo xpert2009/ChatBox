@@ -1,6 +1,17 @@
 import { Router } from 'express';
+import { v2 as cloudinary } from 'cloudinary';
 import { getFirebaseAuth } from '../config/firebase.js';
-import { User } from '../models/index.js';
+import {
+  Call,
+  Group,
+  GroupMessage,
+  Media,
+  Message,
+  Notification,
+  Session,
+  Status,
+  User,
+} from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createSessionToken } from '../utils/sessions.js';
 
@@ -69,6 +80,100 @@ router.post('/logout', requireAuth, async (req, res, next) => {
     req.app.get('io').in(`session:${req.session.id}`).disconnectSockets(true);
     res.json({ success: true });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/delete-account', requireAuth, async (req, res, next) => {
+  try {
+    const idToken = req.body?.idToken;
+    if (typeof idToken !== 'string' || !idToken) {
+      return res.status(400).json({ error: 'A Firebase ID token is required.' });
+    }
+    const decoded = await getFirebaseAuth().verifyIdToken(idToken);
+    if (decoded.uid !== req.user.googleId) {
+      return res.status(403).json({ error: 'The authenticated account does not match.' });
+    }
+
+    const userId = req.user.id;
+    const googleId = req.user.googleId;
+    const deleted = {
+      messages: 0,
+      groupMessages: 0,
+      statuses: 0,
+      mediaDocuments: 0,
+      cloudinaryFiles: 0,
+      notifications: 0,
+      sessions: 0,
+      calls: 0,
+      firebase: false,
+    };
+    const errors = [];
+
+    const media = await Media.find({ owner: userId }).select('publicId resourceType');
+    if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+      for (const file of media) {
+        try {
+          await cloudinary.uploader.destroy(file.publicId, {
+            resource_type: file.resourceType || 'image',
+            invalidate: true,
+          });
+          deleted.cloudinaryFiles++;
+        } catch (error) {
+          errors.push(`Cloudinary ${file.publicId}: ${error.message}`);
+        }
+      }
+    } else {
+      errors.push('Cloudinary credentials are not configured.');
+    }
+
+    await Promise.all([
+      Message.deleteMany({
+        $or: [{ sender: userId }, { receiver: userId }],
+      }).then((result) => { deleted.messages = result.deletedCount; }),
+      GroupMessage.deleteMany({
+        sender: userId,
+      }).then((result) => { deleted.groupMessages = result.deletedCount; }),
+      Status.deleteMany({ user: userId }).then((result) => { deleted.statuses = result.deletedCount; }),
+      Media.deleteMany({ owner: userId }).then((result) => { deleted.mediaDocuments = result.deletedCount; }),
+      Notification.deleteMany({ $or: [{ recipient: userId }, { actor: userId }] })
+        .then((result) => { deleted.notifications = result.deletedCount; }),
+      Session.deleteMany({ user: userId }).then((result) => { deleted.sessions = result.deletedCount; }),
+      Call.deleteMany({ $or: [{ caller: userId }, { receiver: userId }] })
+        .then((result) => { deleted.calls = result.deletedCount; }),
+      Group.updateMany(
+        { $or: [{ members: userId }, { admins: userId }] },
+        { $pull: { members: userId, admins: userId } },
+      ),
+    ]);
+
+    try {
+      await getFirebaseAuth().deleteUser(googleId);
+      deleted.firebase = true;
+    } catch (error) {
+      errors.push(`Firebase: ${error.message}`);
+    }
+
+    await User.deleteOne({ _id: userId });
+
+    if (errors.length) {
+      console.error(`Partial account deletion for user ${userId}:`, errors.join('; '));
+      return res.status(207).json({
+        success: false,
+        deleted,
+        error: 'Account deletion completed with some cleanup errors.',
+      });
+    }
+
+    console.info(`Account deleted for user ${userId}:`, deleted);
+    res.json({ success: true, deleted });
+  } catch (error) {
+    console.error('Account deletion failed:', error.message);
     next(error);
   }
 });

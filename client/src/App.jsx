@@ -8,7 +8,7 @@ import {
   Phone, PhoneOff, Plus, Search, Send, Settings, Smile, Sun, UserPlus,
   Video, VideoOff, X,
 } from 'lucide-react';
-import { signInWithPopup, signOut } from '@firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut } from '@firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
 import { useAuthStore } from './store/authStore';
@@ -17,6 +17,8 @@ import './App.css';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const RTC_CONFIG = {
   iceServers: [
+    // TODO: Add TURN server for production to hide user IP addresses.
+    // Options: Metered.ca, Twilio TURN, or a self-hosted coturn server.
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
@@ -46,19 +48,28 @@ function LoginPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user) {
-      navigate('/home', { replace: true });
-      return;
-    }
-    if (!getAuthToken()) return;
+    if (!auth) return undefined;
     let active = true;
-    api.get('/api/auth/me')
-      .then(({ data }) => {
-        if (data.token) setAuthToken(data.token);
-        if (active) { setUser(data.user); navigate('/home', { replace: true }); }
-      })
-      .catch(() => clearAuthToken());
-    return () => { active = false; };
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        clearAuthToken();
+        return;
+      }
+      try {
+        const idToken = await firebaseUser.getIdToken();
+        const { data } = await api.post('/api/auth/google', { idToken });
+        if (!active) return;
+        setAuthToken(data.token);
+        setUser(data.user);
+        navigate(data.needsUsername ? '/setup' : '/home', { replace: true });
+      } catch {
+        clearAuthToken();
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [navigate, setUser, user]);
 
   async function handleGoogleLogin() {
@@ -184,7 +195,7 @@ function AppShell() {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const clearUser = useAuthStore((state) => state.clearUser);
-  const [booting, setBooting] = useState(() => Boolean(getAuthToken()));
+  const [booting, setBooting] = useState(true);
   const [conversations, setConversations] = useState([]);
   const [groups, setGroups] = useState([]);
   const [statuses, setStatuses] = useState([]);
@@ -272,19 +283,38 @@ function AppShell() {
 
   useEffect(() => {
     let activeEffect = true;
-    const token = getAuthToken();
-    if (!token) return undefined;
-    api.get('/api/auth/me')
-      .then(({ data }) => {
-        if (data.token) setAuthToken(data.token);
-        if (activeEffect) saveUser(data.user);
-      })
-      .catch(() => {
+    if (!auth) {
+      clearAuthToken();
+      clearUser();
+      setBooting(false);
+      return undefined;
+    }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        clearAuthToken();
+        if (activeEffect) {
+          clearUser();
+          setBooting(false);
+        }
+        return;
+      }
+      try {
+        const idToken = await firebaseUser.getIdToken();
+        const { data } = await api.post('/api/auth/google', { idToken });
+        if (!activeEffect) return;
+        setAuthToken(data.token);
+        saveUser(data.user);
+      } catch {
         clearAuthToken();
         if (activeEffect) clearUser();
-      })
-      .finally(() => { if (activeEffect) setBooting(false); });
-    return () => { activeEffect = false; };
+      } finally {
+        if (activeEffect) setBooting(false);
+      }
+    });
+    return () => {
+      activeEffect = false;
+      unsubscribe();
+    };
   }, [clearUser, saveUser]);
 
   useEffect(() => {
@@ -651,6 +681,18 @@ function AppShell() {
     navigate('/login', { replace: true });
   }
 
+  async function onDeleteAccount() {
+    const firebaseUser = auth?.currentUser;
+    if (!firebaseUser) throw new Error('Firebase session is unavailable.');
+    const idToken = await firebaseUser.getIdToken();
+    await api.delete('/api/auth/delete-account', { data: { idToken } });
+    clearAuthToken();
+    await signOut(auth).catch(() => {});
+    socketRef.current?.disconnect();
+    clearUser();
+    navigate('/login', { replace: true });
+  }
+
   if (booting) return <div className="boot-screen"><div className="spinner" /><span>Making a little space…</span></div>;
   if (!user) return <LoginPage />;
 
@@ -806,7 +848,7 @@ function AppShell() {
         )}
       </main>
 
-      {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onSave={saveUser} onUpdateSettings={updateSettings} onLogout={onLogout} />}
+      {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onSave={saveUser} onUpdateSettings={updateSettings} onLogout={onLogout} onDeleteAccount={onDeleteAccount} />}
       {showNewGroup && <NewGroupModal onClose={() => setShowNewGroup(false)} onCreated={(group) => { setGroups((current) => [group, ...current]); openConversation(group, 'group'); setShowNewGroup(false); }} />}
       {viewingStatus && <StoryViewer status={viewingStatus} onClose={() => setViewingStatus(null)} />}
       {incomingCall && <IncomingCallModal details={incomingCall} person={conversations.find((entry) => entry.user._id === incomingCall.from)?.user} onAccept={acceptCall} onDecline={() => { socketRef.current?.emit('call_declined', { to: incomingCall.from }); setIncomingCall(null); }} />}
@@ -975,7 +1017,7 @@ function NewGroupModal({ onClose, onCreated }) {
   );
 }
 
-function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout }) {
+function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDeleteAccount }) {
   const [name, setName] = useState(user.name);
   const [bio, setBio] = useState(user.bio || '');
   const [username, setUsername] = useState(user.username);
@@ -993,6 +1035,8 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout }) {
     ...user.privacy,
   });
   const [availability, setAvailability] = useState(null);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   useEffect(() => {
     if (username === user.username || !/^[a-z0-9_]{3,20}$/i.test(username)) return undefined;
     let current = true;
@@ -1057,6 +1101,33 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout }) {
   async function saveSetting(field, value) {
     await onUpdateSettings({ [field]: value });
   }
+  async function deleteAccount() {
+    setDeletingAccount(true);
+    try {
+      await onDeleteAccount();
+      toast.success('Account deleted.');
+    } catch (error) {
+      setDeletingAccount(false);
+      toast.error(getErrorMessage(error));
+    }
+  }
+  if (showDeleteConfirmation) {
+    return (
+      <Modal title="Delete account forever?" onClose={() => { if (!deletingAccount) setShowDeleteConfirmation(false); }}>
+        <div className="delete-account-confirmation" role="alertdialog" aria-describedby="delete-account-warning">
+          <p id="delete-account-warning">
+            This permanently deletes your profile, messages, files, statuses, sessions, and account. This cannot be undone.
+          </p>
+          <div className="delete-account-actions">
+            <button type="button" className="primary-button" disabled={deletingAccount} onClick={() => setShowDeleteConfirmation(false)}>Cancel</button>
+            <button type="button" className="danger-button" disabled={deletingAccount} onClick={deleteAccount}>
+              {deletingAccount ? <><span className="spinner small-spinner" /> Deleting…</> : 'Delete Forever'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
   return (
     <Modal title="Your space" onClose={onClose}>
       <div className="profile-tabs"><button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Profile</button><button className={tab === 'privacy' ? 'active' : ''} onClick={() => setTab('privacy')}>Privacy</button><button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Settings</button></div>
@@ -1075,6 +1146,7 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout }) {
       </div> : <div className="privacy-panel">
         <label className="privacy-setting"><span><b>Appearance</b><small>Sync your theme across devices</small></span><select value={settings.theme} onChange={(event) => saveSetting('theme', event.target.value)}><option value="light">Light</option><option value="dark">Dark</option></select></label>
         <label className="privacy-toggle"><span><b>Notifications</b><small>Keep message notifications enabled</small></span><input type="checkbox" checked={settings.notifications} onChange={(event) => saveSetting('notifications', event.target.checked)} /></label>
+        <button type="button" className="danger-outline-button" onClick={() => setShowDeleteConfirmation(true)}>Delete account forever</button>
         <button className="logout-button" onClick={onLogout}><LogOut size={16} /> Sign out</button>
       </div>}
     </Modal>

@@ -36,12 +36,27 @@ export function attachSocketServer(httpServer, allowedOrigin) {
   });
 
   const activeCalls = new Map();
+  const userMessageCount = new Map();
 
   io.on('connection', async (socket) => {
     const userId = socket.data.userId;
     const room = `user:${userId}`;
     socket.join(room);
     socket.join(`session:${socket.data.sessionId}`);
+    socket.on('send_message', () => {
+      const now = Date.now();
+      let state = userMessageCount.get(userId);
+      if (!state || now > state.resetAt) {
+        state = { count: 0, resetAt: now + 60 * 1000 };
+      }
+      state.count++;
+      userMessageCount.set(userId, state);
+      if (state.count > 30) {
+        socket.emit('error', { message: 'Too many messages. Please slow down.' });
+        return;
+      }
+      socket.emit('error', { message: 'Use the authenticated message API to send messages.' });
+    });
     socket.use(async (_packet, next) => {
       try {
         const session = await Session.exists({
