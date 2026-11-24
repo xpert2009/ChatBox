@@ -3,8 +3,8 @@
 ## Status
 
 **DONE** — the requested display name and product-facing project copy were
-updated. Client production build and lint passed; server tests and lint passed.
-Live deployment verification is pending the Vercel rollout.
+updated and deployed. Client production build and lint passed; server tests and
+lint passed. The live `/login` page shows the Dream Chat title and heading.
 
 ## Files and changed lines
 
@@ -45,3 +45,5 @@ renaming them could break existing deployments or compatibility.
   `react(set-state-in-effect)` warnings.
 - `server`: `npm test` — 21/21 passed.
 - `server`: `npm run lint` — passed.
+- Live Vercel `/login`: HTTP 200; browser title and visible login heading both
+  read “Dream Chat”; Google sign-in button remains present.
