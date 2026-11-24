@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText,
-  Image, LogOut, MessageCircle, Mic, MicOff, MoreHorizontal, Paperclip,
+  Copy, Image, LogOut, MessageCircle, Mic, MicOff, MoreHorizontal, Paperclip,
   Phone, PhoneOff, Plus, Search, Send, Settings, Smile, UserPlus,
   Video, VideoOff, X,
 } from 'lucide-react';
@@ -312,6 +312,7 @@ function AppShell() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [searchSubmitted, setSearchSubmitted] = useState(false);
   const [typing, setTyping] = useState(false);
   const [text, setText] = useState('');
   const [reply, setReply] = useState(null);
@@ -338,6 +339,7 @@ function AppShell() {
   const paginationEpochRef = useRef(0);
   const typingTimer = useRef(null);
   const typingActive = useRef(false);
+  const searchRequestRef = useRef(0);
   const activeRef = useRef(active);
   const userRef = useRef(user);
   const endCallRef = useRef(null);
@@ -578,21 +580,25 @@ function AppShell() {
     if (container.scrollTop < 80) loadOlderMessages();
   }
 
-  useEffect(() => {
-    if (!query.trim() || query.trim().length < 2) return undefined;
-    let current = true;
-    const timer = setTimeout(async () => {
-      try {
-        const { data } = await api.get('/api/users/search', { params: { q: query.trim() } });
-        if (current) setResults(data.users);
-      } catch (error) {
-        if (current) toast.error(getErrorMessage(error));
-      } finally {
-        if (current) setSearching(false);
+  async function searchUsers(event) {
+    event.preventDefault();
+    const username = normalizeSearchUsername(query);
+    if (username.length < 3 || searching) return;
+    const requestId = ++searchRequestRef.current;
+    setSearchSubmitted(true);
+    setSearching(true);
+    try {
+      const { data } = await api.get('/api/users/search', { params: { q: username } });
+      if (requestId === searchRequestRef.current) setResults(data.users.map(toSearchPerson));
+    } catch (error) {
+      if (requestId === searchRequestRef.current) {
+        setSearchSubmitted(false);
+        toast.error(getErrorMessage(error));
       }
-    }, 250);
-    return () => { current = false; clearTimeout(timer); };
-  }, [query]);
+    } finally {
+      if (requestId === searchRequestRef.current) setSearching(false);
+    }
+  }
 
   useEffect(() => {
     if (user && 'Notification' in window && Notification.permission === 'default') {
@@ -614,6 +620,7 @@ function AppShell() {
 
   async function openConversation(person, type = 'user') {
     const id = person._id || person.id;
+    searchRequestRef.current += 1;
     setMessages([]);
     setHasMoreMessages(false);
     setMessageCursor(null);
@@ -626,6 +633,8 @@ function AppShell() {
     setSection('chats');
     setQuery('');
     setResults([]);
+    setSearching(false);
+    setSearchSubmitted(false);
     setTyping(false);
   }
 
@@ -839,24 +848,43 @@ function AppShell() {
             </div>
             <button className="icon-button" aria-label="Settings" onClick={() => setShowProfile(true)}><Settings size={19} /></button>
           </div>
-          <label className="search-box">
-            <Search size={17} />
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setResults([]); setSearching(event.target.value.trim().length >= 2); }} placeholder="Find someone by name…" aria-label="Search users" />
-            {query && <button aria-label="Clear search" onClick={() => setQuery('')}><X size={15} /></button>}
-          </label>
+          <form className="user-search-form" onSubmit={searchUsers}>
+            <label className="user-search-label" htmlFor="user-search-input">Find people by username</label>
+            <div className="search-box">
+              <Search size={17} aria-hidden="true" />
+              <input
+                id="user-search-input"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setResults([]);
+                  setSearching(false);
+                  setSearchSubmitted(false);
+                  searchRequestRef.current += 1;
+                }}
+                placeholder="Enter exact username (e.g. john1234)"
+                aria-label="Search by exact username"
+              />
+              {query && <button type="button" aria-label="Clear search" onClick={() => { setQuery(''); setResults([]); setSearching(false); setSearchSubmitted(false); searchRequestRef.current += 1; }}><X size={15} /></button>}
+              <button className="username-search-submit" type="submit" disabled={normalizeSearchUsername(query).length < 3 || searching}>Search</button>
+            </div>
+            <p className="user-search-hint">💡 You need the exact username to start a chat</p>
+          </form>
         </header>
 
         <div className="inbox-content">
-          {query.length >= 2 ? (
+          {query.trim() ? normalizeSearchUsername(query).length < 3 ? null : (
             <section className="list-section">
               <div className="section-heading">PEOPLE</div>
-              {results.length ? results.map((person) => (
-                <button key={person._id} className="person-row" onClick={() => openConversation(person)}>
+              {!searchSubmitted ? <p className="quiet-state">Press Enter or click Search to look up that exact username.</p> : searching ? (
+                <p className="quiet-state">Searching for that username…</p>
+              ) : results.length ? results.map((person) => (
+                <article key={person._id} className="person-row search-result-row">
                   <Avatar person={person} online={person.isOnline} />
                   <span className="person-copy"><b>{person.name}</b><small>@{person.username}</small></span>
-                  <MessageCircle size={17} className="row-action" />
-                </button>
-              )) : <p className="quiet-state">{searching ? 'Searching your community…' : 'No people found yet.'}</p>}
+                  <button className="search-start-chat" onClick={() => openConversation(person)}>Start chat</button>
+                </article>
+              )) : <p className="quiet-state">No user found. Ask for their exact username.</p>}
             </section>
           ) : section === 'chats' ? (
             <>
@@ -1110,19 +1138,27 @@ function NewGroupModal({ onClose, onCreated }) {
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState([]);
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (query.trim().length < 2) return undefined;
-    let active = true;
-    const timer = setTimeout(async () => {
-      try {
-        const { data } = await api.get('/api/users/search', { params: { q: query } });
-        if (active) setResults(data.users);
-      } catch (error) {
+  const [searching, setSearching] = useState(false);
+  const [searchSubmitted, setSearchSubmitted] = useState(false);
+  const searchRequestRef = useRef(0);
+  async function searchPeople() {
+    const username = normalizeSearchUsername(query);
+    if (username.length < 3 || searching) return;
+    const requestId = ++searchRequestRef.current;
+    setSearchSubmitted(true);
+    setSearching(true);
+    try {
+      const { data } = await api.get('/api/users/search', { params: { q: username } });
+      if (requestId === searchRequestRef.current) setResults(data.users.map(toSearchPerson));
+    } catch (error) {
+      if (requestId === searchRequestRef.current) {
+        setSearchSubmitted(false);
         toast.error(getErrorMessage(error));
       }
-    }, 250);
-    return () => { active = false; clearTimeout(timer); };
-  }, [query]);
+    } finally {
+      if (requestId === searchRequestRef.current) setSearching(false);
+    }
+  }
   async function create(event) {
     event.preventDefault();
     setBusy(true);
@@ -1139,9 +1175,37 @@ function NewGroupModal({ onClose, onCreated }) {
     <Modal title="Start a group" onClose={onClose}>
       <form className="modal-form" onSubmit={create}>
         <label className="input-label">Group name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Weekend plans" required maxLength={80} /></label>
-        <label className="input-label">Add people<input value={query} onChange={(event) => { setQuery(event.target.value); setResults([]); }} placeholder="Search by name or username" /></label>
+        <div className="input-label">
+          <label htmlFor="group-member-search">Add people</label>
+          <div className="group-username-search">
+            <input
+              id="group-member-search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setResults([]);
+                setSearching(false);
+                setSearchSubmitted(false);
+                searchRequestRef.current += 1;
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void searchPeople();
+                }
+              }}
+              placeholder="Exact username (e.g. john1234)"
+            />
+            <button type="button" className="username-search-submit" onClick={() => void searchPeople()} disabled={normalizeSearchUsername(query).length < 3 || searching}>Search</button>
+          </div>
+        </div>
+        <small className="group-search-hint">Only exact usernames can be used to find people.</small>
         <div className="selected-people">{selected.map((person) => <button type="button" key={person._id} onClick={() => setSelected((current) => current.filter((item) => item._id !== person._id))}>{person.name} <X size={13} /></button>)}</div>
-        <div className="modal-results">{results.filter((person) => !selected.some((item) => item._id === person._id)).map((person) => <button type="button" key={person._id} onClick={() => setSelected((current) => [...current, person])}><Avatar person={person} size="small" />{person.name}<Plus size={15} /></button>)}</div>
+        <div className="modal-results" aria-live="polite">
+          {searching && <p className="quiet-state">Searching for that username…</p>}
+          {!searching && searchSubmitted && results.length === 0 && <p className="quiet-state">No user found. Ask for their exact username.</p>}
+          {!searching && results.filter((person) => !selected.some((item) => item._id === person._id)).map((person) => <button type="button" key={person._id} onClick={() => setSelected((current) => [...current, person])}><Avatar person={person} size="small" />{person.name} <small>@{person.username}</small><Plus size={15} /></button>)}
+        </div>
         <button className="primary-button full-button" disabled={busy || !name.trim() || !selected.length}>{busy ? 'Creating…' : `Create group${selected.length ? ` · ${selected.length + 1} people` : ''}`}</button>
       </form>
     </Modal>
@@ -1166,6 +1230,7 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
     ...user.privacy,
   });
   const [availability, setAvailability] = useState(null);
+  const [copyingUsername, setCopyingUsername] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   useEffect(() => {
@@ -1199,6 +1264,21 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
       toast.error(getErrorMessage(error));
     } finally {
       setBusy(false);
+    }
+  }
+  async function copyUsername() {
+    if (!navigator.clipboard?.writeText) {
+      toast.error('Clipboard access is unavailable in this browser.');
+      return;
+    }
+    setCopyingUsername(true);
+    try {
+      await navigator.clipboard.writeText(`@${username}`);
+      toast.success('Username copied.');
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setCopyingUsername(false);
     }
   }
   async function uploadPhoto(file) {
@@ -1264,6 +1344,11 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
       <div className="profile-tabs"><button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Profile</button><button className={tab === 'privacy' ? 'active' : ''} onClick={() => setTab('privacy')}>Privacy</button><button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Settings</button></div>
       {tab === 'profile' ? <form className="modal-form" onSubmit={save}>
         <div className="profile-preview"><label className="profile-photo-picker" aria-label="Change profile photo"><Avatar person={{ ...user, name, photoURL }} size="large" /><input type="file" accept="image/*" onChange={(event) => uploadPhoto(event.target.files?.[0])} /><span>{uploadingPhoto ? 'Uploading…' : 'Change photo'}</span></label><span><b>{name}</b><small>@{username}</small></span></div>
+        <section className="username-share-card" aria-label="Your ChatBox username">
+          <div><small>YOUR CHATBOX ID</small><strong>@{username}</strong></div>
+          <button type="button" onClick={copyUsername} disabled={copyingUsername}><Copy size={15} />{copyingUsername ? 'Copying…' : 'Copy username'}</button>
+          <p>Share your username so others can message you</p>
+        </section>
         <label className="input-label">Display name<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} /></label>
         <label className="input-label">Username<div className="username-input"><span>@</span><input value={username} onChange={(event) => { const value = event.target.value.toLowerCase(); setUsername(value); setAvailability(value === user.username); }} required minLength={3} maxLength={20} /></div><small className={`availability ${availability === false ? 'unavailable' : ''}`}>{availability === false ? 'This username is already taken.' : '3–20 letters, numbers, or underscores'}</small></label>
         <label className="input-label">About you<textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={100} rows={3} /></label>
@@ -1310,6 +1395,20 @@ function formatTime(value) {
   return date.toDateString() === today.toDateString()
     ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function normalizeSearchUsername(value) {
+  return String(value || '').trim().replace(/^@/, '').trim().toLowerCase();
+}
+
+function toSearchPerson(user) {
+  return {
+    _id: user._id,
+    name: user.displayName,
+    username: user.username,
+    photoURL: user.photoURL,
+    isOnline: user.online,
+  };
 }
 
 function formatDate(value) {

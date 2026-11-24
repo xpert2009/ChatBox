@@ -1,11 +1,39 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
+import rateLimit from 'express-rate-limit';
 import { Group, Media, User, Message } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { serializeVisibleUser } from '../utils/privacy.js';
 
 const router = Router();
 router.use(requireAuth);
+
+export function normalizeUsernameSearch(value) {
+  const username = String(value || '').trim().replace(/^@/, '').trim().toLowerCase();
+  return /^[a-z0-9_]{3,30}$/.test(username) ? username : null;
+}
+
+export function createUsernameSearchResult(user, isContact) {
+  const visibleUser = serializeVisibleUser(user, isContact);
+  return {
+    _id: visibleUser._id,
+    displayName: visibleUser.name,
+    username: visibleUser.username,
+    photoURL: visibleUser.photoURL,
+    online: visibleUser.isOnline,
+  };
+}
+
+export function createUserSearchLimiter() {
+  return rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many username searches. Please try again in a minute.' },
+    keyGenerator: (req) => `user:${req.user.id}`,
+  });
+}
 
 async function getContactIds(userId) {
   const [sent, received, groups] = await Promise.all([
@@ -20,17 +48,18 @@ async function getContactIds(userId) {
   ]);
 }
 
-router.get('/search', async (req, res, next) => {
+router.get('/search', createUserSearchLimiter(), async (req, res, next) => {
   try {
-    const query = String(req.query.q || '').trim();
-    if (query.length < 2) return res.json({ users: [] });
-    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const [users, contacts] = await Promise.all([User.find({
+    const username = normalizeUsernameSearch(req.query.q);
+    if (!username) return res.json({ users: [] });
+    const user = await User.findOne({
       _id: { $ne: req.user.id, $nin: req.user.blockedUsers },
       blockedUsers: { $ne: req.user.id },
-      $or: [{ name: { $regex: escaped, $options: 'i' } }, { username: { $regex: `^${escaped}`, $options: 'i' } }],
-    }).select('name username photoURL bio isOnline lastSeen privacy').limit(20), getContactIds(req.user.id)]);
-    res.json({ users: users.map((user) => serializeVisibleUser(user, contacts.has(user.id))) });
+      username,
+    }).select('_id name username photoURL isOnline privacy');
+    if (!user) return res.json({ users: [] });
+    const contacts = await getContactIds(req.user.id);
+    res.json({ users: [createUsernameSearchResult(user, contacts.has(user.id))] });
   } catch (error) {
     next(error);
   }

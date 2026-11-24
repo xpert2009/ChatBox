@@ -6,6 +6,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { connectDatabase } from './config/db.js';
+import { assignMissingUsernames } from './scripts/assignUsernames.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import messageRoutes from './routes/messages.js';
@@ -108,6 +109,9 @@ const port = Number(process.env.PORT) || 5000;
 try {
   await connectDatabase();
   httpServer.listen(port, () => console.log(`ChatBox API listening on ${port}`));
+  void assignMissingUsernames().catch((error) => {
+    console.error('Username migration failed:', error);
+  });
 } catch (error) {
   console.error('Server startup failed:', error);
   process.exitCode = 1;

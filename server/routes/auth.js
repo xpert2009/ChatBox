@@ -17,11 +17,6 @@ import { createSessionToken } from '../utils/sessions.js';
 
 const router = Router();
 
-function makeUsername(name) {
-  const base = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 18) || 'friend';
-  return `${base}${Math.floor(1000 + Math.random() * 9000)}`;
-}
-
 router.post('/google', async (req, res, next) => {
   try {
     const { idToken } = req.body || {};
@@ -36,15 +31,23 @@ router.post('/google', async (req, res, next) => {
     let isNewUser = false;
     if (!user) {
       isNewUser = true;
-      let username = makeUsername(decoded.name);
-      while (await User.exists({ username })) username = makeUsername(decoded.name);
-      user = await User.create({
-        googleId: decoded.uid,
-        name: decoded.name,
-        email: decoded.email,
-        photoURL: decoded.picture || '',
-        username,
-      });
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const username = await User.generateUniqueUsername(decoded.email);
+        try {
+          user = await User.create({
+            googleId: decoded.uid,
+            name: decoded.name,
+            email: decoded.email,
+            photoURL: decoded.picture || '',
+            username,
+          });
+          break;
+        } catch (error) {
+          const usernameConflict = error.code === 11000 &&
+            (error.keyPattern?.username || error.keyValue?.username);
+          if (!usernameConflict || attempt === 4) throw error;
+        }
+      }
     } else {
       user.name = decoded.name;
       user.email = decoded.email;
@@ -56,7 +59,7 @@ router.post('/google', async (req, res, next) => {
     res.json({
       token,
       isNewUser,
-      needsUsername: isNewUser,
+      needsUsername: false,
       user: user.toObject(),
     });
   } catch (error) {

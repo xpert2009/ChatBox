@@ -1,6 +1,13 @@
 import mongoose from 'mongoose';
+import { randomInt } from 'node:crypto';
 
 const { Schema, model, models } = mongoose;
+
+export function createUsernameBaseFromEmail(email) {
+  const localPart = String(email || '').trim().split('@')[0] || '';
+  const normalized = localPart.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+  return normalized.length >= 3 ? normalized : `user${normalized}`.slice(0, 20);
+}
 
 const privacySchema = new Schema({
   lastSeen: { type: String, enum: ['everyone', 'contacts', 'nobody'], default: 'everyone' },
@@ -29,6 +36,24 @@ const userSchema = new Schema({
   privacy: { type: privacySchema, default: () => ({}) },
   settings: { type: userSettingsSchema, default: () => ({}) },
 }, { timestamps: true });
+
+userSchema.statics.generateUniqueUsername = async function generateUniqueUsername(email) {
+  const base = createUsernameBaseFromEmail(email);
+  if (!await this.exists({ username: base })) return base;
+
+  const prefix = base.slice(0, 16);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const username = `${prefix}${randomInt(1000, 10000)}`;
+    if (!await this.exists({ username })) return username;
+  }
+  throw new Error('Unable to generate a unique username.');
+};
+
+userSchema.pre('validate', async function assignUsernameFromEmail() {
+  if (!this.username && this.email) {
+    this.username = await this.constructor.generateUniqueUsername(this.email);
+  }
+});
 
 const messageFields = {
   sender: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
