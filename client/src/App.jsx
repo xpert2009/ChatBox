@@ -8,7 +8,7 @@ import {
   Phone, PhoneOff, Plus, Search, Send, Settings, Smile, Sun, UserPlus,
   Video, VideoOff, X,
 } from 'lucide-react';
-import { signInWithPopup, signOut } from 'firebase/auth';
+import { signInWithPopup, signOut } from '@firebase/auth';
 import api, { getErrorMessage } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
 import { useAuthStore } from './store/authStore';
