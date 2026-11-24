@@ -51,7 +51,12 @@ Date: 2026-11-24
 - Frontend production build: passed.
 - Backend and frontend npm audits: 0 vulnerabilities.
 - `AUDIT.md` was deleted and remains ignored by Git.
-- Live Render and Vercel verification must be repeated after the final deployment.
+- Live Render commit `8373c5a` is deployed; `/api/health` returned `ok`.
+- MongoDB connected in the live deployment.
+- The live login route and valid Vercel origin pass CORS preflight.
+- Repeated login attempts produced HTTP 429 responses after the configured limit.
+- An unauthenticated account-deletion request was rejected with HTTP 401.
+- Vercel returned HTTP 200 and all six configured security headers.
 
 ## Provider-side manual actions
 
