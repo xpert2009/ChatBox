@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
-  ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, FileText,
+  ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText,
   Image, LogOut, MessageCircle, Mic, MicOff, Moon, MoreHorizontal, Paperclip,
   Phone, PhoneOff, Plus, Search, Send, Settings, Smile, Sun, UserPlus,
   Video, VideoOff, X,
@@ -27,6 +27,79 @@ const RTC_CONFIG = {
   ],
 };
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
+const IMAGE_REACTIONS = ['❤️', '👍', '😂', '😮', '😢'];
+
+function getImageDownloadUrl(fileURL) {
+  try {
+    const url = new URL(fileURL);
+    if (url.hostname === 'res.cloudinary.com' && url.pathname.includes('/image/upload/')) {
+      url.pathname = url.pathname.replace('/image/upload/', '/image/upload/fl_attachment/');
+      return url.toString();
+    }
+  } catch {
+    return fileURL;
+  }
+  return fileURL;
+}
+
+function ImageMessageActions({ message, userId, onReact }) {
+  const reactions = message.reactions || [];
+  return (
+    <div className="image-message-actions">
+      <a
+        className="image-download-button"
+        href={getImageDownloadUrl(message.fileURL)}
+        download={message.fileName || 'chat-image'}
+        aria-label={`Download ${message.fileName || 'photo'}`}
+        title="Download photo"
+      >
+        <Download size={14} />
+        <span>Download</span>
+      </a>
+      <div className="photo-reactions" role="group" aria-label="React to photo">
+        {IMAGE_REACTIONS.map((emoji) => {
+          const matching = reactions.filter((reaction) => reaction.emoji === emoji);
+          const selected = matching.some((reaction) => String(reaction.userId?._id || reaction.userId) === userId);
+          return (
+            <button
+              key={emoji}
+              type="button"
+              className={selected ? 'photo-reaction selected' : 'photo-reaction'}
+              aria-label={`React with ${emoji}${matching.length ? `, ${matching.length} reactions` : ''}`}
+              aria-pressed={selected}
+              onClick={() => onReact(message._id, emoji)}
+            >
+              <span>{emoji}</span>
+              {matching.length > 0 && <small>{matching.length}</small>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ImagePreviewModal({ message, userId, onClose, onReact }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="image-preview-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="image-preview-dialog" role="dialog" aria-modal="true" aria-label="Photo preview">
+        <button type="button" className="image-preview-close" aria-label="Close photo preview" onClick={onClose}>×</button>
+        <img src={message.fileURL} alt={message.fileName || 'Shared photo'} />
+        <ImageMessageActions message={message} userId={userId} onReact={onReact} />
+      </section>
+    </div>
+  );
+}
 
 function Avatar({ person, size = 'normal', online = false }) {
   const label = person?.name || person?.username || 'ChatBox';
@@ -221,6 +294,7 @@ function AppShell() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [viewingStatus, setViewingStatus] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
   const [call, setCall] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   const [muted, setMuted] = useState(false);
@@ -355,6 +429,11 @@ function AppShell() {
         return message;
       }));
       loadData();
+    });
+    socket.on('message_reaction_updated', ({ messageId, reactions }) => {
+      setMessages((current) => current.map((message) => (
+        message._id === messageId ? { ...message, reactions } : message
+      )));
     });
     socket.on('pending_notifications', ({ count }) => {
       if (count > 0 && userRef.current?.settings?.notifications !== false) {
@@ -557,6 +636,17 @@ function AppShell() {
       toast.error(getErrorMessage(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function reactToMessage(messageId, emoji) {
+    try {
+      const { data } = await api.put(`/api/messages/${messageId}/reaction`, { emoji });
+      setMessages((current) => current.map((message) => (
+        message._id === messageId ? { ...message, reactions: data.reactions } : message
+      )));
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 
@@ -825,7 +915,19 @@ function AppShell() {
                     <div className={`message-bubble ${own ? 'outgoing' : 'incoming'}`}>
                       {active.type === 'group' && !own && <b className="sender-name">{message.sender?.name}</b>}
                       {message.replyTo && <div className="quoted-message">{message.replyTo.content || 'Attachment'}</div>}
-                      {message.type === 'image' && <a href={message.fileURL} target="_blank" rel="noreferrer"><img className="message-image" src={message.fileURL} alt={message.fileName || 'Shared image'} /></a>}
+                      {message.type === 'image' && (
+                        <div className="image-message-card">
+                          <button
+                            type="button"
+                            className="image-preview-trigger"
+                            aria-label={`Preview ${message.fileName || 'photo'}`}
+                            onClick={() => setPreviewImage(message)}
+                          >
+                            <img className="message-image" src={message.fileURL} alt={message.fileName || 'Shared image'} loading="lazy" />
+                          </button>
+                          <ImageMessageActions message={message} userId={user._id} onReact={reactToMessage} />
+                        </div>
+                      )}
                       {message.type === 'video' && <video className="message-video" src={message.fileURL} controls preload="metadata" />}
                       {message.type === 'audio' && <audio src={message.fileURL} controls />}
                       {message.type === 'document' && <a className="document-link" href={message.fileURL} target="_blank" rel="noreferrer"><FileText size={23} /><span><b>{message.fileName || 'Document'}</b><small>{formatSize(message.fileSize)}</small></span></a>}
@@ -855,6 +957,7 @@ function AppShell() {
       {showProfile && <ProfileModal user={user} onClose={() => setShowProfile(false)} onSave={saveUser} onUpdateSettings={updateSettings} onLogout={onLogout} onDeleteAccount={onDeleteAccount} />}
       {showNewGroup && <NewGroupModal onClose={() => setShowNewGroup(false)} onCreated={(group) => { setGroups((current) => [group, ...current]); openConversation(group, 'group'); setShowNewGroup(false); }} />}
       {viewingStatus && <StoryViewer status={viewingStatus} onClose={() => setViewingStatus(null)} />}
+      {previewImage && <ImagePreviewModal message={previewImage} userId={user._id} onClose={() => setPreviewImage(null)} onReact={reactToMessage} />}
       {incomingCall && <IncomingCallModal details={incomingCall} person={conversations.find((entry) => entry.user._id === incomingCall.from)?.user} onAccept={acceptCall} onDecline={() => { socketRef.current?.emit('call_declined', { to: incomingCall.from }); setIncomingCall(null); }} />}
       {call && <CallModal call={call} localVideoRef={localVideoRef} remoteVideoRef={remoteVideoRef} remoteAudioRef={remoteAudioRef} muted={muted} cameraOff={cameraOff} onMute={() => { localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !track.enabled; }); setMuted((value) => !value); }} onCamera={() => { localStreamRef.current?.getVideoTracks().forEach((track) => { track.enabled = !track.enabled; }); setCameraOff((value) => !value); }} onEnd={() => endCall()} />}
       <Toaster position="top-right" toastOptions={{ duration: 3500 }} />

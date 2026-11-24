@@ -10,6 +10,7 @@ import {
   getBeforeFilter,
   getMessagePageSize,
 } from '../utils/messageCursor.js';
+import { MESSAGE_REACTION_EMOJIS, toggleMessageReaction } from '../utils/messageReactions.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -168,6 +169,50 @@ router.get('/', async (req, res, next) => {
     res.json({ messages: visibleMessages, hasMore, nextCursor });
   } catch (error) {
     if (error.message === 'Invalid message cursor.') return res.status(400).json({ error: error.message });
+    next(error);
+  }
+});
+
+router.put('/:id/reaction', async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid message id.' });
+    const { emoji } = req.body || {};
+    if (typeof emoji !== 'string' || !MESSAGE_REACTION_EMOJIS.includes(emoji)) {
+      return res.status(400).json({ error: 'Choose a supported reaction.' });
+    }
+
+    let message = await Message.findById(req.params.id);
+    if (!message) message = await GroupMessage.findById(req.params.id);
+    if (!message) return res.status(404).json({ error: 'Message not found.' });
+
+    const groupId = message.group?._id || message.group;
+    let recipients;
+    if (groupId) {
+      const group = await Group.findOne({ _id: groupId, members: req.user.id }).select('members');
+      if (!group) return res.status(404).json({ error: 'Message not found.' });
+      recipients = group.members;
+    } else {
+      if (!message.receiver ||
+          (!message.sender.equals(req.user.id) && !message.receiver.equals(req.user.id))) {
+        return res.status(404).json({ error: 'Message not found.' });
+      }
+      recipients = [message.sender, message.receiver];
+    }
+
+    message.reactions = toggleMessageReaction(message.reactions, req.user.id, emoji);
+    await message.save();
+    const reactionUpdate = {
+      messageId: message.id,
+      reactions: message.reactions.map(({ userId, emoji: reactionEmoji }) => ({
+        userId: String(userId),
+        emoji: reactionEmoji,
+      })),
+    };
+    for (const recipientId of recipients) {
+      req.app.get('io').to(`user:${recipientId}`).emit('message_reaction_updated', reactionUpdate);
+    }
+    res.json({ reactions: reactionUpdate.reactions });
+  } catch (error) {
     next(error);
   }
 });
