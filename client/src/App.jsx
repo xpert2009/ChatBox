@@ -44,7 +44,6 @@ function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const setUser = useAuthStore((state) => state.setUser);
-  const user = useAuthStore((state) => state.user);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -62,15 +61,16 @@ function LoginPage() {
         setAuthToken(data.token);
         setUser(data.user);
         navigate(data.needsUsername ? '/setup' : '/home', { replace: true });
-      } catch {
+      } catch (loginError) {
         clearAuthToken();
+        if (active) setError(getErrorMessage(loginError));
       }
     });
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [navigate, setUser, user]);
+  }, [navigate, setUser]);
 
   async function handleGoogleLogin() {
     if (!auth) return setError('Google sign-in is not configured. Add the Firebase values to client/.env.');
