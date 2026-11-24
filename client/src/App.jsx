@@ -77,12 +77,8 @@ function LoginPage() {
     setBusy(true);
     setError('');
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const idToken = await result.user.getIdToken();
-      const response = await api.post('/api/auth/google', { idToken });
-      setAuthToken(response.data.token);
-      setUser(response.data.user);
-      navigate(response.data.needsUsername ? '/setup' : '/home');
+      await signInWithPopup(auth, googleProvider);
+      // onAuthStateChanged exchanges the Firebase ID token and creates the app session.
     } catch (loginError) {
       setError(getErrorMessage(loginError));
     } finally {
