@@ -901,7 +901,7 @@ function StatusRow({ status, onViewed }) {
     <button className="status-row" onClick={onViewed}>
       <span className="status-ring"><Avatar person={status.user} /></span>
       <span><b>{status.user?.name || 'Your status'}</b><small>{status.type === 'text' ? status.content : 'Shared a moment'} · {formatTime(status.createdAt)}</small></span>
-      {status.viewers?.length > 0 && <small className="viewer-count">{status.viewers.length} views</small>}
+      {status.viewerCount > 0 && <small className="viewer-count">{status.viewerCount} views</small>}
     </button>
   );
 }
@@ -913,7 +913,7 @@ function StoryViewer({ status, onClose }) {
       <div className="story-progress"><i /></div>
       <div className="story-author"><Avatar person={status.user} size="small" /><span><b>{status.user?.name || 'Your status'}</b><small>{formatTime(status.createdAt)}</small></span></div>
       {status.type === 'text' ? <p>{status.content}</p> : status.type === 'video' ? <video src={status.fileURL} autoPlay controls playsInline /> : <img src={status.fileURL} alt="Shared status" />}
-      {status.user?.name && status.viewers && <small className="story-views">{status.viewers.length} views</small>}
+      {status.user?.name && status.viewerCount > 0 && <small className="story-views">{status.viewerCount} views</small>}
     </div>
   </div>;
 }

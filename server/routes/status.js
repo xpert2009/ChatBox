@@ -4,6 +4,7 @@ import { Group, Media, Message, Status, User } from '../models/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { serializeVisibleUser } from '../utils/privacy.js';
 import { canViewStatus } from '../utils/statusAccess.js';
+import { serializeStatus } from '../utils/statusSerialization.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,7 +29,7 @@ router.get('/', async (req, res, next) => {
       .sort({ createdAt: 1 })
       .populate('user', 'name username photoURL privacy');
     res.json({ statuses: statuses.map((status) => {
-      const visibleStatus = status.toObject();
+      const visibleStatus = serializeStatus(status);
       visibleStatus.user = serializeVisibleUser(status.user, true);
       return visibleStatus;
     }) });
@@ -62,7 +63,7 @@ router.post('/', async (req, res, next) => {
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
     req.app.get('io').to(`user:${req.user.id}`).emit('statuses_updated');
-    res.status(201).json({ status });
+    res.status(201).json({ status: serializeStatus(status) });
   } catch (error) {
     next(error);
   }
@@ -103,7 +104,7 @@ router.post('/:id/view', async (req, res, next) => {
     );
     if (!status) return res.status(404).json({ error: 'Status not found or expired.' });
     req.app.get('io').to(`user:${status.user}`).emit('statuses_updated');
-    res.json({ status });
+    res.json({ status: serializeStatus(status) });
   } catch (error) {
     next(error);
   }

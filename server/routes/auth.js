@@ -64,10 +64,9 @@ router.get('/me', requireAuth, async (req, res, next) => {
 
 router.post('/logout', requireAuth, async (req, res, next) => {
   try {
-    if (req.session) {
-      req.session.revokedAt = new Date();
-      await req.session.save();
-    }
+    req.session.revokedAt = new Date();
+    await req.session.save();
+    req.app.get('io').in(`session:${req.session.id}`).disconnectSockets(true);
     res.json({ success: true });
   } catch (error) {
     next(error);

@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { Message, Notification, Session, User } from '../models/index.js';
+import { hasValidSessionClaims } from '../utils/sessions.js';
 
 export function attachSocketServer(httpServer, allowedOrigin) {
   const io = new Server(httpServer, {
@@ -18,16 +19,15 @@ export function attachSocketServer(httpServer, allowedOrigin) {
   io.use(async (socket, next) => {
     try {
       const payload = jwt.verify(socket.handshake.auth?.token, process.env.JWT_SECRET);
-      if (payload.sid) {
-        const session = await Session.findOne({
-          _id: payload.sid,
-          user: payload.sub,
-          revokedAt: null,
-          expiresAt: { $gt: new Date() },
-        }).select('_id');
-        if (!session) return next(new Error('Unauthorized'));
-        socket.data.sessionId = session.id;
-      }
+      if (!hasValidSessionClaims(payload)) return next(new Error('Unauthorized'));
+      const session = await Session.findOne({
+        _id: payload.sid,
+        user: payload.sub,
+        revokedAt: null,
+        expiresAt: { $gt: new Date() },
+      }).select('_id');
+      if (!session) return next(new Error('Unauthorized'));
+      socket.data.sessionId = session.id;
       socket.data.userId = String(payload.sub);
       next();
     } catch {
@@ -41,11 +41,29 @@ export function attachSocketServer(httpServer, allowedOrigin) {
     const userId = socket.data.userId;
     const room = `user:${userId}`;
     socket.join(room);
+    socket.join(`session:${socket.data.sessionId}`);
+    socket.use(async (_packet, next) => {
+      try {
+        const session = await Session.exists({
+          _id: socket.data.sessionId,
+          user: userId,
+          revokedAt: null,
+          expiresAt: { $gt: new Date() },
+        });
+        if (!session) {
+          socket.disconnect(true);
+          return next(new Error('Unauthorized'));
+        }
+        next();
+      } catch {
+        console.error('Socket session validation failed.');
+        socket.disconnect(true);
+        next(new Error('Unauthorized'));
+      }
+    });
     try {
       await User.findByIdAndUpdate(userId, { isOnline: true });
-      if (socket.data.sessionId) {
-        await Session.findByIdAndUpdate(socket.data.sessionId, { lastSeenAt: new Date() });
-      }
+      await Session.findByIdAndUpdate(socket.data.sessionId, { lastSeenAt: new Date() });
       const unreadNotifications = await Notification.countDocuments({ recipient: userId, readAt: null });
       await Notification.updateMany(
         { recipient: userId, deliveredAt: null },
