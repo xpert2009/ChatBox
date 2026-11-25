@@ -137,16 +137,6 @@ notificationSchema.index({ recipient: 1, readAt: 1, createdAt: -1 });
 notificationSchema.index({ recipient: 1, deliveredAt: 1 });
 notificationSchema.index({ recipient: 1, messageId: 1 }, { unique: true });
 
-const callSchema = new Schema({
-  caller: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  receiver: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['voice', 'video'], required: true },
-  status: { type: String, enum: ['answered', 'missed', 'declined'], default: 'missed' },
-  duration: { type: Number, default: 0 },
-  startedAt: { type: Date, default: Date.now },
-  endedAt: { type: Date },
-}, { timestamps: true });
-
 export const User = models.User || model('User', userSchema);
 export const Message = models.Message || model('Message', messageSchema);
 export const GroupMessage = models.GroupMessage || model('GroupMessage', groupMessageSchema, 'group_messages');
@@ -155,4 +145,3 @@ export const Status = models.Status || model('Status', statusSchema);
 export const Media = models.Media || model('Media', mediaSchema, 'media');
 export const Session = models.Session || model('Session', sessionSchema, 'sessions');
 export const Notification = models.Notification || model('Notification', notificationSchema, 'notifications');
-export const Call = models.Call || model('Call', callSchema);

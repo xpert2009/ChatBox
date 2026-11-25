@@ -4,9 +4,8 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText,
-  Copy, Image, LogOut, MessageCircle, Mic, MicOff, MoreHorizontal, Paperclip,
-  Phone, PhoneOff, Plus, Search, Send, Settings, Smile, UserPlus,
-  Video, VideoOff, X,
+  Copy, Image, LogOut, MessageCircle, MoreHorizontal, Paperclip,
+  Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
 import { onAuthStateChanged, signInWithPopup, signOut } from '@firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
@@ -15,36 +14,6 @@ import { useAuthStore } from './store/authStore';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.stunprotocol.org:3478' },
-    { urls: 'stun:stun.voip.blackberry.com:3478' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-  iceCandidatePoolSize: 10,
-  iceTransportPolicy: 'all',
-  bundlePolicy: 'max-bundle',
-  rtcpMuxPolicy: 'require',
-};
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const IMAGE_REACTIONS = ['❤️', '👍', '😂', '😮', '😢'];
 
@@ -343,19 +312,7 @@ function AppShell() {
   const [viewingUserLoading, setViewingUserLoading] = useState(false);
   const [viewingStatus, setViewingStatus] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
-  const [call, setCall] = useState(null);
-  const [incomingCall, setIncomingCall] = useState(null);
-  const [muted, setMuted] = useState(false);
-  const [cameraOff, setCameraOff] = useState(false);
   const socketRef = useRef(null);
-  const peerRef = useRef(null);
-  const localStreamRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const remoteAudioRef = useRef(null);
-  const localVideoRef = useRef(null);
-  const iceCandidateBufferRef = useRef([]);
-  const connectionTimeoutRef = useRef(null);
-  const disconnectedTimeoutRef = useRef(null);
   const scrollRef = useRef(null);
   const scrollAdjustmentRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
@@ -367,28 +324,8 @@ function AppShell() {
   const profileLookupRef = useRef(0);
   const activeRef = useRef(active);
   const userRef = useRef(user);
-  const endCallRef = useRef(null);
   const navigate = useNavigate();
   const userId = user?._id;
-  const callStatus = call?.status;
-
-  const endCall = useCallback((notifyPeer = true) => {
-    if (notifyPeer && call?.to) socketRef.current?.emit('call_ended', { to: call.to });
-    window.clearTimeout(connectionTimeoutRef.current);
-    window.clearTimeout(disconnectedTimeoutRef.current);
-    peerRef.current?.close();
-    peerRef.current = null;
-    localStreamRef.current?.getTracks().forEach((track) => track.stop());
-    localStreamRef.current = null;
-    iceCandidateBufferRef.current = [];
-    if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
-    setCall(null);
-    setIncomingCall(null);
-    setMuted(false);
-    setCameraOff(false);
-  }, [call]);
 
   const activePerson = useMemo(() => {
     if (!active) return null;
@@ -397,7 +334,6 @@ function AppShell() {
   }, [active, conversations, groups]);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { userRef.current = user; }, [user]);
-  useEffect(() => { endCallRef.current = endCall; }, [endCall]);
 
   const saveUser = useCallback((updatedUser) => {
     setUser(updatedUser);
@@ -515,50 +451,6 @@ function AppShell() {
     socket.on('user_offline', ({ userId, lastSeen }) => {
       setConversations((current) => current.map((entry) => entry.user._id === userId ? { ...entry, user: { ...entry.user, isOnline: false, lastSeen } } : entry));
     });
-    socket.on('incoming_call', (details) => setIncomingCall(details));
-    socket.on('call_answered', async ({ answer }) => {
-      try {
-        const peer = peerRef.current;
-        if (!peer || peer.signalingState === 'closed') return;
-        await peer.setRemoteDescription(new RTCSessionDescription(answer));
-        for (const candidate of iceCandidateBufferRef.current) {
-          await peer.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-        iceCandidateBufferRef.current = [];
-        setCall((current) => current ? { ...current, status: 'connecting' } : current);
-      } catch (error) {
-        console.error('Call answer could not be applied:', error);
-        toast.error('Could not establish the call connection.');
-      }
-    });
-    socket.on('call_ice', async ({ candidate }) => {
-      const peer = peerRef.current;
-      if (!candidate) return;
-      if (!peer?.remoteDescription) {
-        iceCandidateBufferRef.current.push(candidate);
-        return;
-      }
-      try {
-        await peer.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-        console.warn('ICE candidate could not be added:', error);
-      }
-    });
-    socket.on('ice_candidate', async ({ candidate }) => {
-      const peer = peerRef.current;
-      if (!candidate) return;
-      if (!peer?.remoteDescription) {
-        iceCandidateBufferRef.current.push(candidate);
-        return;
-      }
-      try {
-        await peer.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (error) {
-        console.warn('ICE candidate could not be added:', error);
-      }
-    });
-    socket.on('call_declined', () => { toast('Call declined'); endCallRef.current?.(false); });
-    socket.on('call_ended', () => { toast('Call ended'); endCallRef.current?.(false); });
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -710,18 +602,6 @@ function AppShell() {
     }
   }, [user]);
 
-  useEffect(() => {
-    if (callStatus !== 'connected') return undefined;
-    const timer = setInterval(() => setCall((current) => current ? { ...current, seconds: (current.seconds || 0) + 1 } : current), 1000);
-    return () => clearInterval(timer);
-  }, [callStatus]);
-
-  useEffect(() => {
-    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-    if (remoteVideoRef.current && peerRef.current?.remoteStream) remoteVideoRef.current.srcObject = peerRef.current.remoteStream;
-    if (remoteAudioRef.current && peerRef.current?.remoteStream) remoteAudioRef.current.srcObject = peerRef.current.remoteStream;
-  }, [call, incomingCall]);
-
   async function openConversation(person, type = 'user') {
     const id = person._id || person.id;
     searchRequestRef.current += 1;
@@ -818,151 +698,6 @@ function AppShell() {
     }
   }
 
-  async function createPeer(to) {
-    const peer = new RTCPeerConnection(RTC_CONFIG);
-    peer.remoteStream = new MediaStream();
-    peer.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach((track) => peer.remoteStream.addTrack(track));
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = peer.remoteStream;
-      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = peer.remoteStream;
-    };
-    peer.onicecandidate = (event) => {
-      if (event.candidate) socketRef.current?.emit('call_ice', { to, candidate: event.candidate });
-    };
-    peer.onconnectionstatechange = () => {
-      const state = peer.connectionState;
-      if (state === 'connecting') setCall((current) => current ? { ...current, status: 'connecting' } : current);
-      if (state === 'connected') {
-        window.clearTimeout(connectionTimeoutRef.current);
-        window.clearTimeout(disconnectedTimeoutRef.current);
-        setCall((current) => current ? { ...current, status: 'connected' } : current);
-      }
-      if (state === 'disconnected') {
-        setCall((current) => current ? { ...current, status: 'Disconnected' } : current);
-        window.clearTimeout(disconnectedTimeoutRef.current);
-        disconnectedTimeoutRef.current = window.setTimeout(() => {
-          if (peerRef.current?.connectionState === 'disconnected') endCallRef.current?.(true);
-        }, 5000);
-      }
-      if (state === 'failed') {
-        toast.error('Call connection failed. Check your internet connection.');
-        endCallRef.current?.(true);
-      }
-      if (state === 'closed') endCallRef.current?.(false);
-    };
-    peer.oniceconnectionstatechange = () => {
-      const state = peer.iceConnectionState;
-      if (state === 'connected' || state === 'completed') {
-        window.clearTimeout(connectionTimeoutRef.current);
-        window.clearTimeout(disconnectedTimeoutRef.current);
-        setCall((current) => current ? { ...current, status: 'connected' } : current);
-      }
-      if (state === 'failed') {
-        toast.error('Call connection failed. Check your internet connection.');
-        endCallRef.current?.(true);
-      }
-    };
-    localStreamRef.current?.getTracks().forEach((track) => peer.addTrack(track, localStreamRef.current));
-    peerRef.current = peer;
-    return peer;
-  }
-
-  async function startCall(type) {
-    if (!active || active.type !== 'user') return toast.error('Calls are available in direct chats.');
-    if (!navigator.mediaDevices?.getUserMedia) return toast.error('Your browser does not support camera or microphone access.');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: type === 'video' ? {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          facingMode: 'user',
-        } : false,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      localStreamRef.current = stream;
-      setCall({ to: active.id, person: activePerson, type, status: 'calling', seconds: 0 });
-      const peer = await createPeer(active.id);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.muted = true;
-      }
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socketRef.current?.emit('call_offer', { to: active.id, offer, type });
-      window.clearTimeout(connectionTimeoutRef.current);
-      connectionTimeoutRef.current = window.setTimeout(() => setCall((current) => {
-        if (current?.status === 'calling') {
-          socketRef.current?.emit('call_ended', { to: current.to });
-          endCall(false);
-          toast('No answer');
-        }
-        if (current && current.status !== 'connected') {
-          socketRef.current?.emit('call_ended', { to: current.to });
-          endCall(false);
-          toast.error('Call failed. Please check your internet connection.');
-        }
-        return null;
-      }), 30000);
-    } catch (error) {
-      endCall(false);
-      toast.error(error.name === 'NotAllowedError' ? 'Allow camera and microphone access to make a call.' : getErrorMessage(error));
-    }
-  }
-
-  async function acceptCall() {
-    if (!incomingCall || !navigator.mediaDevices?.getUserMedia) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: incomingCall.type === 'video' ? {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          facingMode: 'user',
-        } : false,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      localStreamRef.current = stream;
-      const peer = await createPeer(incomingCall.from);
-      await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
-      for (const candidate of iceCandidateBufferRef.current) {
-        await peer.addIceCandidate(new RTCIceCandidate(candidate));
-      }
-      iceCandidateBufferRef.current = [];
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      socketRef.current?.emit('call_answer', { to: incomingCall.from, answer });
-      const person = conversations.find((entry) => entry.user._id === incomingCall.from)?.user || { name: 'Dream Chat contact' };
-      setCall({ to: incomingCall.from, person, type: incomingCall.type, status: 'connecting', seconds: 0 });
-      setIncomingCall(null);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.muted = true;
-      }
-      window.clearTimeout(connectionTimeoutRef.current);
-      connectionTimeoutRef.current = window.setTimeout(() => {
-        setCall((current) => {
-          if (current && current.status !== 'connected') {
-            socketRef.current?.emit('call_ended', { to: current.to });
-            endCall(false);
-            toast.error('Call failed. Please check your internet connection.');
-          }
-          return null;
-        });
-      }, 30000);
-    } catch (error) {
-      toast.error(error.name === 'NotAllowedError' ? 'Allow camera and microphone access to answer.' : getErrorMessage(error));
-      socketRef.current?.emit('call_declined', { to: incomingCall.from });
-      endCall(false);
-    }
-  }
-
   async function chooseEmoji(emojiData) {
     setText((current) => `${current}${emojiData.emoji}`);
   }
@@ -1012,7 +747,6 @@ function AppShell() {
         <div className="rail-actions" aria-label="Main navigation">
           <RailButton icon={<MessageCircle />} label="Chats" active={section === 'chats'} badge={conversations.reduce((sum, item) => sum + item.unread, 0)} onClick={() => setSection('chats')} />
           <RailButton icon={<CircleUserRound />} label="Status" active={section === 'status'} onClick={() => setSection('status')} />
-          <RailButton icon={<Phone />} label="Calls" active={section === 'calls'} onClick={() => setSection('calls')} />
           <RailButton icon={<UserPlus />} label="Groups" active={section === 'groups'} onClick={() => setSection('groups')} />
         </div>
         <div className="rail-bottom">
@@ -1025,7 +759,7 @@ function AppShell() {
           <div className="inbox-title-row">
             <div>
               <span className="eyebrow">YOUR SPACE</span>
-              <h1>{section === 'chats' ? 'Messages' : section === 'status' ? 'Around you' : section === 'calls' ? 'Calls' : 'Your groups'}</h1>
+              <h1>{section === 'chats' ? 'Messages' : section === 'status' ? 'Around you' : 'Your groups'}</h1>
             </div>
             <button className="icon-button" aria-label="Settings" onClick={() => setShowProfile(true)}><Settings size={19} /></button>
           </div>
@@ -1099,8 +833,6 @@ function AppShell() {
             </>
           ) : section === 'status' ? (
             <StatusPage statuses={statuses} user={user} onChanged={loadData} />
-          ) : section === 'calls' ? (
-            <section className="list-section"><div className="section-heading">CALLS</div><EmptyPanel title="Your call history lives here" detail="Open any direct conversation to start a voice or video call." /></section>
           ) : (
             <GroupsPage groups={groups} onSelect={(group) => openConversation(group, 'group')} onCreate={() => setShowNewGroup(true)} />
           )}
@@ -1136,13 +868,6 @@ function AppShell() {
                   <span><b>{activePerson?.name || activePerson?.username}</b><small>{activePerson?.members?.length || 0} members</small></span>
                 </div>
               )}
-              <div className="chat-header-actions">
-                {active.type === 'user' && <>
-                  <button className="icon-button" aria-label="Start voice call" onClick={() => startCall('voice')}><Phone size={19} /></button>
-                  <button className="icon-button" aria-label="Start video call" onClick={() => startCall('video')}><Video size={20} /></button>
-                </>}
-                <button className="icon-button" aria-label="More chat options" onClick={() => toast('More chat settings are coming soon.')}><MoreHorizontal size={21} /></button>
-              </div>
             </header>
             <div className="message-scroll" ref={scrollRef} onScroll={handleMessageScroll}>
               <div className="conversation-intro">
@@ -1220,13 +945,10 @@ function AppShell() {
       {showNewGroup && <NewGroupModal onClose={() => setShowNewGroup(false)} onCreated={(group) => { setGroups((current) => [group, ...current]); openConversation(group, 'group'); setShowNewGroup(false); }} />}
       {viewingStatus && <StoryViewer status={viewingStatus} onClose={() => setViewingStatus(null)} />}
       {previewImage && <ImagePreviewModal message={previewImage} userId={user._id} onClose={() => setPreviewImage(null)} onReact={reactToMessage} />}
-      {incomingCall && <IncomingCallModal details={incomingCall} person={conversations.find((entry) => entry.user._id === incomingCall.from)?.user} onAccept={acceptCall} onDecline={() => { socketRef.current?.emit('call_declined', { to: incomingCall.from }); setIncomingCall(null); }} />}
-      {call && <CallModal call={call} localVideoRef={localVideoRef} remoteVideoRef={remoteVideoRef} remoteAudioRef={remoteAudioRef} muted={muted} cameraOff={cameraOff} onMute={() => { localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !track.enabled; }); setMuted((value) => !value); }} onCamera={() => { localStreamRef.current?.getVideoTracks().forEach((track) => { track.enabled = !track.enabled; }); setCameraOff((value) => !value); }} onEnd={() => endCall()} />}
       <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
       <nav className="mobile-nav">
         <RailButton icon={<MessageCircle />} label="Chats" active={section === 'chats'} onClick={() => { setSection('chats'); setActive(null); setMessages([]); }} />
         <RailButton icon={<CircleUserRound />} label="Status" active={section === 'status'} onClick={() => { setSection('status'); setActive(null); setMessages([]); }} />
-        <RailButton icon={<Phone />} label="Calls" active={section === 'calls'} onClick={() => { setSection('calls'); setActive(null); setMessages([]); }} />
         <RailButton icon={<CircleUserRound />} label="Profile" onClick={() => setShowProfile(true)} />
       </nav>
     </div>
@@ -1603,25 +1325,6 @@ function ProfileModal({ user, onClose, onSave, onUpdateSettings, onLogout, onDel
 
 function Modal({ title, onClose, children }) {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal-card" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
-}
-
-function CallTimer({ seconds = 0 }) {
-  const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-  return <span style={{ color: 'var(--accent)' }}>{time}</span>;
-}
-
-function IncomingCallModal({ details, person, onAccept, onDecline }) {
-  return <div className="call-overlay"><div className="incoming-call-card"><Avatar person={person || { name: 'Someone' }} size="xlarge" /><span className="eyebrow">INCOMING {(details.callType || details.type || 'voice').toUpperCase()} CALL</span><h2>{person?.name || 'A Dream Chat friend'}</h2><p>Someone would love to talk.</p><div className="call-actions"><button className="decline-call" aria-label="Decline call" onClick={onDecline}><PhoneOff /></button><button className="accept-call" aria-label="Accept call" onClick={onAccept}><Phone /></button></div></div></div>;
-}
-
-function CallModal({ call, localVideoRef, remoteVideoRef, remoteAudioRef, muted, cameraOff, onMute, onCamera, onEnd }) {
-  const video = call.type === 'video';
-  return <div className={`call-overlay ${video ? 'video-call-overlay' : ''}`}>
-    {video && <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />}
-    {!video && <audio ref={remoteAudioRef} autoPlay />}
-    {video && <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />}
-    <div className="call-card"><Avatar person={call.person} size="xlarge" /><span className="eyebrow">{call.status === 'calling' ? 'CALLING' : call.status === 'connected' ? 'CONNECTED' : call.status === 'Disconnected' ? 'DISCONNECTED' : 'CONNECTING'}</span><h2>{call.person?.name || 'A Dream Chat friend'}</h2><div className="call-status-bar">{call.status === 'connected' ? <CallTimer seconds={call.seconds} /> : <p>{call.status === 'calling' ? 'Waiting for them to pick up…' : call.status === 'Disconnected' ? 'Trying to reconnect…' : 'Finding a clear connection…'}</p>}</div><div className="call-actions"><button className={muted ? 'control-active' : ''} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} onClick={onMute}>{muted ? <MicOff /> : <Mic />}</button>{video && <button className={cameraOff ? 'control-active' : ''} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'} onClick={onCamera}>{cameraOff ? <VideoOff /> : <Video />}</button>}<button className="decline-call" aria-label="End call" onClick={onEnd}><PhoneOff /></button></div></div>
-  </div>;
 }
 
 function formatTime(value) {

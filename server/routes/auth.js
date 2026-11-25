@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { v2 as cloudinary } from 'cloudinary';
 import { getFirebaseAuth } from '../config/firebase.js';
 import {
-  Call,
   Group,
   GroupMessage,
   Media,
@@ -108,7 +107,6 @@ router.delete('/delete-account', requireAuth, async (req, res, next) => {
       cloudinaryFiles: 0,
       notifications: 0,
       sessions: 0,
-      calls: 0,
       firebase: false,
     };
     const errors = [];
@@ -147,8 +145,6 @@ router.delete('/delete-account', requireAuth, async (req, res, next) => {
       Notification.deleteMany({ $or: [{ recipient: userId }, { actor: userId }] })
         .then((result) => { deleted.notifications = result.deletedCount; }),
       Session.deleteMany({ user: userId }).then((result) => { deleted.sessions = result.deletedCount; }),
-      Call.deleteMany({ $or: [{ caller: userId }, { receiver: userId }] })
-        .then((result) => { deleted.calls = result.deletedCount; }),
       Group.updateMany(
         { $or: [{ members: userId }, { admins: userId }] },
         { $pull: { members: userId, admins: userId } },
