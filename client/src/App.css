@@ -1367,3 +1367,14 @@ select option {
   color: var(--ink-faint);
   font-size: 10px;
 }
+.offline-banner {
+  position: fixed;
+  z-index: 9999;
+  inset: 0 0 auto;
+  padding: 8px 16px;
+  background: #ff6b35;
+  color: #fff;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+}

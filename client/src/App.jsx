@@ -1371,7 +1371,25 @@ function formatSize(bytes = 0) {
 }
 
 function Root() {
-  return <BrowserRouter><Routes><Route path="/login" element={<LoginPage />} /><Route path="/setup" element={<SetupPage />} /><Route path="*" element={<AppShell />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><NetworkStatus /><Routes><Route path="/login" element={<LoginPage />} /><Route path="/setup" element={<SetupPage />} /><Route path="*" element={<AppShell />} /></Routes></BrowserRouter>;
+}
+
+function NetworkStatus() {
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  if (isOnline) return null;
+  return <div className="offline-banner" role="status" aria-live="polite">You're offline — reconnect to send and receive messages.</div>;
 }
 
 export default Root;
