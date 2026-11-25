@@ -35,7 +35,7 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Install frontend dependencies
         working-directory: client
@@ -43,7 +43,7 @@ jobs:
 
       - name: Install Capacitor
         working-directory: client
-        run: npm install --no-save --no-package-lock @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+        run: npm install --no-save --no-package-lock @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
 
       - name: Build Vite frontend
         working-directory: client
