@@ -17,14 +17,33 @@ import './App.css';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const RTC_CONFIG = {
   iceServers: [
-    // TODO: Add TURN server for production to hide user IP addresses.
-    // Options: Metered.ca, Twilio TURN, or a self-hosted coturn server.
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:stun.voip.blackberry.com:3478' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
+  iceCandidatePoolSize: 10,
+  iceTransportPolicy: 'all',
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
 };
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const IMAGE_REACTIONS = ['❤️', '👍', '😂', '😮', '😢'];
@@ -334,6 +353,9 @@ function AppShell() {
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const localVideoRef = useRef(null);
+  const iceCandidateBufferRef = useRef([]);
+  const connectionTimeoutRef = useRef(null);
+  const disconnectedTimeoutRef = useRef(null);
   const scrollRef = useRef(null);
   const scrollAdjustmentRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
@@ -352,10 +374,16 @@ function AppShell() {
 
   const endCall = useCallback((notifyPeer = true) => {
     if (notifyPeer && call?.to) socketRef.current?.emit('call_ended', { to: call.to });
+    window.clearTimeout(connectionTimeoutRef.current);
+    window.clearTimeout(disconnectedTimeoutRef.current);
     peerRef.current?.close();
     peerRef.current = null;
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    iceCandidateBufferRef.current = [];
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     setCall(null);
     setIncomingCall(null);
     setMuted(false);
@@ -489,12 +517,42 @@ function AppShell() {
     });
     socket.on('incoming_call', (details) => setIncomingCall(details));
     socket.on('call_answered', async ({ answer }) => {
-      if (peerRef.current) await peerRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-      setCall((current) => current ? { ...current, status: 'connected' } : current);
+      try {
+        const peer = peerRef.current;
+        if (!peer || peer.signalingState === 'closed') return;
+        await peer.setRemoteDescription(new RTCSessionDescription(answer));
+        for (const candidate of iceCandidateBufferRef.current) {
+          await peer.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+        iceCandidateBufferRef.current = [];
+        setCall((current) => current ? { ...current, status: 'connecting' } : current);
+      } catch (error) {
+        console.error('Call answer could not be applied:', error);
+        toast.error('Could not establish the call connection.');
+      }
+    });
+    socket.on('call_ice', async ({ candidate }) => {
+      const peer = peerRef.current;
+      if (!candidate) return;
+      if (!peer?.remoteDescription) {
+        iceCandidateBufferRef.current.push(candidate);
+        return;
+      }
+      try {
+        await peer.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.warn('ICE candidate could not be added:', error);
+      }
     });
     socket.on('ice_candidate', async ({ candidate }) => {
+      const peer = peerRef.current;
+      if (!candidate) return;
+      if (!peer?.remoteDescription) {
+        iceCandidateBufferRef.current.push(candidate);
+        return;
+      }
       try {
-        await peerRef.current?.addIceCandidate(new RTCIceCandidate(candidate));
+        await peer.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (error) {
         console.warn('ICE candidate could not be added:', error);
       }
@@ -769,11 +827,40 @@ function AppShell() {
       if (remoteAudioRef.current) remoteAudioRef.current.srcObject = peer.remoteStream;
     };
     peer.onicecandidate = (event) => {
-      if (event.candidate) socketRef.current?.emit('ice_candidate', { to, candidate: event.candidate });
+      if (event.candidate) socketRef.current?.emit('call_ice', { to, candidate: event.candidate });
     };
     peer.onconnectionstatechange = () => {
-      if (peer.connectionState === 'connected') setCall((current) => current ? { ...current, status: 'connected' } : current);
-      if (['failed', 'disconnected'].includes(peer.connectionState)) toast.error('Call connection was interrupted.');
+      const state = peer.connectionState;
+      if (state === 'connecting') setCall((current) => current ? { ...current, status: 'connecting' } : current);
+      if (state === 'connected') {
+        window.clearTimeout(connectionTimeoutRef.current);
+        window.clearTimeout(disconnectedTimeoutRef.current);
+        setCall((current) => current ? { ...current, status: 'connected' } : current);
+      }
+      if (state === 'disconnected') {
+        setCall((current) => current ? { ...current, status: 'Disconnected' } : current);
+        window.clearTimeout(disconnectedTimeoutRef.current);
+        disconnectedTimeoutRef.current = window.setTimeout(() => {
+          if (peerRef.current?.connectionState === 'disconnected') endCallRef.current?.(true);
+        }, 5000);
+      }
+      if (state === 'failed') {
+        toast.error('Call connection failed. Check your internet connection.');
+        endCallRef.current?.(true);
+      }
+      if (state === 'closed') endCallRef.current?.(false);
+    };
+    peer.oniceconnectionstatechange = () => {
+      const state = peer.iceConnectionState;
+      if (state === 'connected' || state === 'completed') {
+        window.clearTimeout(connectionTimeoutRef.current);
+        window.clearTimeout(disconnectedTimeoutRef.current);
+        setCall((current) => current ? { ...current, status: 'connected' } : current);
+      }
+      if (state === 'failed') {
+        toast.error('Call connection failed. Check your internet connection.');
+        endCallRef.current?.(true);
+      }
     };
     localStreamRef.current?.getTracks().forEach((track) => peer.addTrack(track, localStreamRef.current));
     peerRef.current = peer;
@@ -784,20 +871,41 @@ function AppShell() {
     if (!active || active.type !== 'user') return toast.error('Calls are available in direct chats.');
     if (!navigator.mediaDevices?.getUserMedia) return toast.error('Your browser does not support camera or microphone access.');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: type === 'video' ? {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: 'user',
+        } : false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       localStreamRef.current = stream;
       setCall({ to: active.id, person: activePerson, type, status: 'calling', seconds: 0 });
       const peer = await createPeer(active.id);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true;
+      }
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       socketRef.current?.emit('call_offer', { to: active.id, offer, type });
-      setTimeout(() => setCall((current) => {
+      window.clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = window.setTimeout(() => setCall((current) => {
         if (current?.status === 'calling') {
           socketRef.current?.emit('call_ended', { to: current.to });
           endCall(false);
           toast('No answer');
         }
-        return current?.status === 'calling' ? null : current;
+        if (current && current.status !== 'connected') {
+          socketRef.current?.emit('call_ended', { to: current.to });
+          endCall(false);
+          toast.error('Call failed. Please check your internet connection.');
+        }
+        return null;
       }), 30000);
     } catch (error) {
       endCall(false);
@@ -809,18 +917,45 @@ function AppShell() {
     if (!incomingCall || !navigator.mediaDevices?.getUserMedia) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: incomingCall.type === 'video',
+        video: incomingCall.type === 'video' ? {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: 'user',
+        } : false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       localStreamRef.current = stream;
       const peer = await createPeer(incomingCall.from);
       await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      for (const candidate of iceCandidateBufferRef.current) {
+        await peer.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      iceCandidateBufferRef.current = [];
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
       socketRef.current?.emit('call_answer', { to: incomingCall.from, answer });
       const person = conversations.find((entry) => entry.user._id === incomingCall.from)?.user || { name: 'Dream Chat contact' };
       setCall({ to: incomingCall.from, person, type: incomingCall.type, status: 'connecting', seconds: 0 });
       setIncomingCall(null);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true;
+      }
+      window.clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = window.setTimeout(() => {
+        setCall((current) => {
+          if (current && current.status !== 'connected') {
+            socketRef.current?.emit('call_ended', { to: current.to });
+            endCall(false);
+            toast.error('Call failed. Please check your internet connection.');
+          }
+          return null;
+        });
+      }, 30000);
     } catch (error) {
       toast.error(error.name === 'NotAllowedError' ? 'Allow camera and microphone access to answer.' : getErrorMessage(error));
       socketRef.current?.emit('call_declined', { to: incomingCall.from });
@@ -1470,18 +1605,22 @@ function Modal({ title, onClose, children }) {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal-card" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
 }
 
+function CallTimer({ seconds = 0 }) {
+  const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  return <span style={{ color: 'var(--accent)' }}>{time}</span>;
+}
+
 function IncomingCallModal({ details, person, onAccept, onDecline }) {
-  return <div className="call-overlay"><div className="incoming-call-card"><Avatar person={person || { name: 'Someone' }} size="xlarge" /><span className="eyebrow">INCOMING {details.type.toUpperCase()} CALL</span><h2>{person?.name || 'A Dream Chat friend'}</h2><p>Someone would love to talk.</p><div className="call-actions"><button className="decline-call" aria-label="Decline call" onClick={onDecline}><PhoneOff /></button><button className="accept-call" aria-label="Accept call" onClick={onAccept}><Phone /></button></div></div></div>;
+  return <div className="call-overlay"><div className="incoming-call-card"><Avatar person={person || { name: 'Someone' }} size="xlarge" /><span className="eyebrow">INCOMING {(details.callType || details.type || 'voice').toUpperCase()} CALL</span><h2>{person?.name || 'A Dream Chat friend'}</h2><p>Someone would love to talk.</p><div className="call-actions"><button className="decline-call" aria-label="Decline call" onClick={onDecline}><PhoneOff /></button><button className="accept-call" aria-label="Accept call" onClick={onAccept}><Phone /></button></div></div></div>;
 }
 
 function CallModal({ call, localVideoRef, remoteVideoRef, remoteAudioRef, muted, cameraOff, onMute, onCamera, onEnd }) {
-  const time = `${String(Math.floor((call.seconds || 0) / 60)).padStart(2, '0')}:${String((call.seconds || 0) % 60).padStart(2, '0')}`;
   const video = call.type === 'video';
   return <div className={`call-overlay ${video ? 'video-call-overlay' : ''}`}>
     {video && <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />}
     {!video && <audio ref={remoteAudioRef} autoPlay />}
     {video && <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />}
-    <div className="call-card"><Avatar person={call.person} size="xlarge" /><span className="eyebrow">{call.status === 'calling' ? 'CALLING' : call.status === 'connected' ? 'CONNECTED' : 'CONNECTING'}</span><h2>{call.person?.name || 'A Dream Chat friend'}</h2><p>{call.status === 'connected' ? time : call.status === 'calling' ? 'Waiting for them to pick up…' : 'Finding a clear connection…'}</p><div className="call-actions"><button className={muted ? 'control-active' : ''} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} onClick={onMute}>{muted ? <MicOff /> : <Mic />}</button>{video && <button className={cameraOff ? 'control-active' : ''} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'} onClick={onCamera}>{cameraOff ? <VideoOff /> : <Video />}</button>}<button className="decline-call" aria-label="End call" onClick={onEnd}><PhoneOff /></button></div></div>
+    <div className="call-card"><Avatar person={call.person} size="xlarge" /><span className="eyebrow">{call.status === 'calling' ? 'CALLING' : call.status === 'connected' ? 'CONNECTED' : call.status === 'Disconnected' ? 'DISCONNECTED' : 'CONNECTING'}</span><h2>{call.person?.name || 'A Dream Chat friend'}</h2><div className="call-status-bar">{call.status === 'connected' ? <CallTimer seconds={call.seconds} /> : <p>{call.status === 'calling' ? 'Waiting for them to pick up…' : call.status === 'Disconnected' ? 'Trying to reconnect…' : 'Finding a clear connection…'}</p>}</div><div className="call-actions"><button className={muted ? 'control-active' : ''} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} onClick={onMute}>{muted ? <MicOff /> : <Mic />}</button>{video && <button className={cameraOff ? 'control-active' : ''} aria-label={cameraOff ? 'Turn camera on' : 'Turn camera off'} onClick={onCamera}>{cameraOff ? <VideoOff /> : <Video />}</button>}<button className="decline-call" aria-label="End call" onClick={onEnd}><PhoneOff /></button></div></div>
   </div>;
 }
 

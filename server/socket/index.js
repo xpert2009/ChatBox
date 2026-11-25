@@ -134,14 +134,33 @@ export function attachSocketServer(httpServer, allowedOrigin) {
     socket.on('ice_candidate', ({ to, candidate } = {}) => {
       if (activeCalls.get(userId) === to && candidate) io.to(`user:${to}`).emit('ice_candidate', { from: userId, candidate });
     });
+    socket.on('call_ice', ({ to, candidate } = {}) => {
+      if (activeCalls.get(userId) === to && candidate) io.to(`user:${to}`).emit('call_ice', { from: userId, candidate });
+    });
     socket.on('call_declined', ({ to } = {}) => {
       if (activeCalls.get(userId) === to) {
         activeCalls.delete(userId);
         activeCalls.delete(to);
         io.to(`user:${to}`).emit('call_declined', { from: userId });
+        io.to(`user:${to}`).emit('call_rejected', { from: userId });
+      }
+    });
+    socket.on('call_reject', ({ to } = {}) => {
+      if (activeCalls.get(userId) === to) {
+        activeCalls.delete(userId);
+        activeCalls.delete(to);
+        io.to(`user:${to}`).emit('call_declined', { from: userId });
+        io.to(`user:${to}`).emit('call_rejected', { from: userId });
       }
     });
     socket.on('call_ended', ({ to } = {}) => {
+      if (activeCalls.get(userId) === to) {
+        activeCalls.delete(userId);
+        activeCalls.delete(to);
+        io.to(`user:${to}`).emit('call_ended', { from: userId });
+      }
+    });
+    socket.on('call_end', ({ to } = {}) => {
       if (activeCalls.get(userId) === to) {
         activeCalls.delete(userId);
         activeCalls.delete(to);
