@@ -10,3 +10,4 @@
 - **Client build:** PASS.
 - **Client lint:** PASS with 0 errors and 2 existing React effect warnings.
 - **Built bundle verification:** Confirmed `openrelay.metered.ca`, ICE buffering, and `connectionState` are present in the built JavaScript bundle.
+- **Live health:** `https://chatbox-pgpf.onrender.com/api/health` returned HTTP 200 with `{"status":"ok"}`.
