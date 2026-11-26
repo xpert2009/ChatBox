@@ -8,7 +8,11 @@ import {
   Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
-import { onAuthStateChanged, signInWithPopup, signOut } from '@firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import {
+  GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut,
+} from '@firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
 import { useAuthStore } from './store/authStore';
@@ -289,7 +293,13 @@ function LoginPage() {
     setError('');
     setShowConnectionHint(false);
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        if (!result.idToken) throw new Error('Google sign-in did not return an ID token.');
+        await signInWithCredential(auth, GoogleAuthProvider.credential(result.idToken));
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
       // onAuthStateChanged exchanges the Firebase ID token and creates the app session.
     } catch (loginError) {
       setError(getErrorMessage(loginError));

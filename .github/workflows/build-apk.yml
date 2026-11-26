@@ -55,6 +55,7 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: npm run build
 
       - name: Initialize Capacitor configuration
@@ -71,9 +72,37 @@ jobs:
             npx cap add android
           fi
 
+      - name: Configure Firebase Android files
+        working-directory: client
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" | base64 --decode > android/app/google-services.json
+          else
+            echo "GOOGLE_SERVICES_JSON is empty; skipping google-services.json."
+          fi
+
+      - name: Enable native Google Sign-In
+        working-directory: client/android
+        run: |
+          if grep -q '^[[:space:]]*rgcfaIncludeGoogle[[:space:]]*=' variables.gradle; then
+            sed -i 's/^[[:space:]]*rgcfaIncludeGoogle[[:space:]]*=.*/    rgcfaIncludeGoogle = true/' variables.gradle
+          else
+            sed -i '/^[[:space:]]*ext[[:space:]]*{/a\    rgcfaIncludeGoogle = true' variables.gradle
+          fi
+          grep -q '^[[:space:]]*rgcfaIncludeGoogle[[:space:]]*=[[:space:]]*true$' variables.gradle
+
       - name: Sync Capacitor
         working-directory: client
         run: npx cap sync android
+
+      - name: Print debug keystore SHA-1
+        run: |
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android 2>/dev/null | grep SHA1
 
       - name: Build debug APK
         working-directory: client/android

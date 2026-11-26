@@ -1,0 +1,11 @@
+{
+  "appId": "com.dreamchat.app",
+  "appName": "Dream Chat",
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": ["google.com"]
+    }
+  }
+}
