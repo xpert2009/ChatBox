@@ -4,9 +4,10 @@ import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText,
-  Copy, Image, LogOut, MessageCircle, MoreHorizontal, Paperclip,
+  Copy, Image, LogOut, MessageCircle, MoreHorizontal, Paperclip, Rocket,
   Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
+import { Browser } from '@capacitor/browser';
 import { onAuthStateChanged, signInWithPopup, signOut } from '@firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
@@ -14,8 +15,127 @@ import { useAuthStore } from './store/authStore';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const CURRENT_APP_VERSION = '1.0.0';
+const LATEST_RELEASE_URL = 'https://github.com/xpert2009/ChatBox/releases/latest';
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
 const IMAGE_REACTIONS = ['❤️', '👍', '😂', '😮', '😢'];
+
+function isNewerVersion(candidate, current) {
+  const parseVersion = (version) => (
+    typeof version === 'string' && /^\d+(?:\.\d+)*$/.test(version)
+      ? version.split('.').map(Number)
+      : null
+  );
+  const candidateParts = parseVersion(candidate);
+  const currentParts = parseVersion(current);
+  if (!candidateParts || !currentParts) return false;
+
+  for (let index = 0; index < Math.max(candidateParts.length, currentParts.length); index += 1) {
+    const candidatePart = candidateParts[index] || 0;
+    const currentPart = currentParts[index] || 0;
+    if (candidatePart !== currentPart) return candidatePart > currentPart;
+  }
+  return false;
+}
+
+function UpdateChecker() {
+  const [available, setAvailable] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function checkVersion() {
+      try {
+        const response = await fetch(new URL('/version', API_URL), {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        });
+        if (!response.ok) throw new Error(`Version check returned HTTP ${response.status}.`);
+        const result = await response.json();
+        if (active && isNewerVersion(result?.version, CURRENT_APP_VERSION)) setAvailable(true);
+      } catch (error) {
+        console.warn('Dream Chat update check failed:', error);
+      }
+    }
+
+    void checkVersion();
+    return () => { active = false; };
+  }, []);
+
+  if (!available) return null;
+  return <UpdateAvailableModal onClose={() => setAvailable(false)} />;
+}
+
+function UpdateAvailableModal({ onClose }) {
+  const [openError, setOpenError] = useState('');
+  const dialogRef = useRef(null);
+  const updateButtonRef = useRef(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    updateButtonRef.current?.focus();
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const buttons = dialogRef.current?.querySelectorAll('button:not([disabled])');
+      if (!buttons?.length) return;
+      const firstButton = buttons[0];
+      const lastButton = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === firstButton) {
+        event.preventDefault();
+        lastButton.focus();
+      } else if (!event.shiftKey && document.activeElement === lastButton) {
+        event.preventDefault();
+        firstButton.focus();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, [onClose]);
+
+  async function openReleasePage() {
+    setOpenError('');
+    try {
+      await Browser.open({ url: LATEST_RELEASE_URL });
+    } catch (error) {
+      console.error('Could not open the Dream Chat release page:', error);
+      setOpenError('Link open nahi hua. Thodi der baad phir try karein.');
+    }
+  }
+
+  return (
+    <div className="update-overlay">
+      <section
+        ref={dialogRef}
+        className="update-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="update-title"
+        aria-describedby="update-description"
+      >
+        <div className="update-logo" aria-hidden="true">
+          <MessageCircle size={34} strokeWidth={1.8} />
+          <span>Dream Chat</span>
+        </div>
+        <div className="update-icon" aria-hidden="true"><Rocket size={24} /></div>
+        <h1 id="update-title">Naya Update Available Hai! 🚀</h1>
+        <p id="update-description">Dream Chat ka naya version aapke liye tayyar hai.</p>
+        <button ref={updateButtonRef} type="button" className="update-primary" onClick={openReleasePage}>
+          <Download size={18} aria-hidden="true" />
+          Abhi Update Karein
+        </button>
+        {openError && <p className="update-error" role="alert">{openError}</p>}
+        <button type="button" className="update-skip" onClick={onClose}>Baad Mein</button>
+      </section>
+    </div>
+  );
+}
 
 function getImageDownloadUrl(fileURL) {
   try {
@@ -1371,7 +1491,7 @@ function formatSize(bytes = 0) {
 }
 
 function Root() {
-  return <BrowserRouter><NetworkStatus /><Routes><Route path="/login" element={<LoginPage />} /><Route path="/setup" element={<SetupPage />} /><Route path="*" element={<AppShell />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><NetworkStatus /><UpdateChecker /><Routes><Route path="/login" element={<LoginPage />} /><Route path="/setup" element={<SetupPage />} /><Route path="*" element={<AppShell />} /></Routes></BrowserRouter>;
 }
 
 function NetworkStatus() {

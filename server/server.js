@@ -21,8 +21,8 @@ const httpServer = http.createServer(app);
 app.set('trust proxy', 1);
 const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
 const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [...new Set([allowedOrigin, 'https://chatbox-frontend-xpert2009.vercel.app'].filter(Boolean))]
-  : [...new Set([allowedOrigin, 'http://localhost:5173', 'http://localhost:4173'])];
+  ? [...new Set([allowedOrigin, 'https://chatbox-frontend-xpert2009.vercel.app', 'capacitor://localhost'].filter(Boolean))]
+  : [...new Set([allowedOrigin, 'http://localhost:5173', 'http://localhost:4173', 'capacitor://localhost'])];
 
 const requiredEnvVars = [
   'MONGODB_URI',
@@ -79,6 +79,7 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
+app.get('/version', (_req, res) => res.json({ version: '1.0.0' }));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth/google', loginLimiter);
 app.use('/api/auth', authRoutes);

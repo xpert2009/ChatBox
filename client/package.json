@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/browser": "^6.0.6",
+    "@capacitor/core": "^6.2.4",
     "@firebase/app": "^0.16.7",
     "@firebase/auth": "^1.13.11",
     "@tailwindcss/vite": "^4.1.13",
