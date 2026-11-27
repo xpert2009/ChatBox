@@ -8,10 +8,8 @@ import {
   Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
-import { Capacitor } from '@capacitor/core';
-import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import {
-  GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut,
+  getRedirectResult, onAuthStateChanged, signInWithRedirect, signOut,
 } from '@firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
@@ -247,11 +245,8 @@ function LoginPage() {
   useEffect(() => {
     if (!auth) return undefined;
     let active = true;
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        clearAuthToken();
-        return;
-      }
+    const completeLogin = async (firebaseUser) => {
+      if (!active || authExchangePendingRef.current) return;
       authExchangePendingRef.current = true;
       setBusy(true);
       setShowConnectionHint(false);
@@ -279,7 +274,23 @@ function LoginPage() {
           setShowConnectionHint(false);
         }
       }
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!firebaseUser) {
+        clearAuthToken();
+        return;
+      }
+      void completeLogin(firebaseUser);
     });
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) void completeLogin(result.user);
+      })
+      .catch((loginError) => {
+        if (active) setError(getErrorMessage(loginError));
+      });
+
     return () => {
       active = false;
       window.clearTimeout(connectionHintTimerRef.current);
@@ -293,21 +304,11 @@ function LoginPage() {
     setError('');
     setShowConnectionHint(false);
     try {
-      if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
-        const result = await FirebaseAuthentication.signInWithGoogle();
-        if (!result.idToken) throw new Error('Google sign-in did not return an ID token.');
-        await signInWithCredential(auth, GoogleAuthProvider.credential(result.idToken));
-      } else {
-        await signInWithPopup(auth, googleProvider);
-      }
-      // onAuthStateChanged exchanges the Firebase ID token and creates the app session.
+      await signInWithRedirect(auth, googleProvider);
     } catch (loginError) {
       setError(getErrorMessage(loginError));
-    } finally {
-      if (!authExchangePendingRef.current) {
-        setBusy(false);
-        setShowConnectionHint(false);
-      }
+      setBusy(false);
+      setShowConnectionHint(false);
     }
   }
 

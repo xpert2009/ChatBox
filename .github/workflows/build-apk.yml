@@ -83,16 +83,6 @@ jobs:
             echo "GOOGLE_SERVICES_JSON is empty; skipping google-services.json."
           fi
 
-      - name: Enable native Google Sign-In
-        working-directory: client/android
-        run: |
-          if grep -q '^[[:space:]]*rgcfaIncludeGoogle[[:space:]]*=' variables.gradle; then
-            sed -i 's/^[[:space:]]*rgcfaIncludeGoogle[[:space:]]*=.*/    rgcfaIncludeGoogle = true/' variables.gradle
-          else
-            sed -i '/^[[:space:]]*ext[[:space:]]*{/a\    rgcfaIncludeGoogle = true' variables.gradle
-          fi
-          grep -q '^[[:space:]]*rgcfaIncludeGoogle[[:space:]]*=[[:space:]]*true$' variables.gradle
-
       - name: Sync Capacitor
         working-directory: client
         run: npx cap sync android
