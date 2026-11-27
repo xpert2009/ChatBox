@@ -87,6 +87,17 @@ jobs:
         working-directory: client
         run: npx cap sync android
 
+      - name: Enable Google Sign-In in variables.gradle
+        run: |
+          variables_file="client/android/variables.gradle"
+          if grep -q 'rgcfaIncludeGoogle' "$variables_file"; then
+            sed -i 's/rgcfaIncludeGoogle = false/rgcfaIncludeGoogle = true/g' "$variables_file"
+          else
+            sed -i '/^[[:space:]]*ext[[:space:]]*{/a\    rgcfaIncludeGoogle = true' "$variables_file"
+          fi
+          grep -q 'rgcfaIncludeGoogle = true' "$variables_file"
+        shell: bash
+
       - name: Restore signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

@@ -9,9 +9,10 @@ import {
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import {
-  getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut,
-} from '@firebase/auth';
+  GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut,
+} from 'firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
 import { useAuthStore } from './store/authStore';
@@ -284,16 +285,6 @@ function LoginPage() {
       }
       void completeLogin(firebaseUser);
     });
-    if (Capacitor.isNativePlatform()) {
-      getRedirectResult(auth)
-        .then((result) => {
-          if (result?.user) void completeLogin(result.user);
-        })
-        .catch((loginError) => {
-          if (active) setError(getErrorMessage(loginError));
-        });
-    }
-
     return () => {
       active = false;
       window.clearTimeout(connectionHintTimerRef.current);
@@ -308,7 +299,11 @@ function LoginPage() {
     setShowConnectionHint(false);
     try {
       if (Capacitor.isNativePlatform()) {
-        await signInWithRedirect(auth, googleProvider);
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        const idToken = result.credential?.idToken;
+        if (!idToken) throw new Error('Google sign-in did not return an ID token.');
+        const credential = GoogleAuthProvider.credential(idToken);
+        await signInWithCredential(auth, credential);
       } else {
         await signInWithPopup(auth, googleProvider);
       }

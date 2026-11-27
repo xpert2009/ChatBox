@@ -1,6 +1,10 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -8,6 +12,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'firebase/auth': '@firebase/auth',
+      '@capacitor-firebase/authentication/firebase': path.resolve(__dirname, 'node_modules/@firebase/auth'),
     },
   },
   build: {
