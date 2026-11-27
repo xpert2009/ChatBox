@@ -8,8 +8,9 @@ import {
   Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
+import { Capacitor } from '@capacitor/core';
 import {
-  getRedirectResult, onAuthStateChanged, signInWithRedirect, signOut,
+  getRedirectResult, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut,
 } from '@firebase/auth';
 import api, { clearAuthToken, getAuthToken, getErrorMessage, setAuthToken } from './lib/api';
 import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
@@ -283,13 +284,15 @@ function LoginPage() {
       }
       void completeLogin(firebaseUser);
     });
-    getRedirectResult(auth)
-      .then((result) => {
-        if (result?.user) void completeLogin(result.user);
-      })
-      .catch((loginError) => {
-        if (active) setError(getErrorMessage(loginError));
-      });
+    if (Capacitor.isNativePlatform()) {
+      getRedirectResult(auth)
+        .then((result) => {
+          if (result?.user) void completeLogin(result.user);
+        })
+        .catch((loginError) => {
+          if (active) setError(getErrorMessage(loginError));
+        });
+    }
 
     return () => {
       active = false;
@@ -304,7 +307,11 @@ function LoginPage() {
     setError('');
     setShowConnectionHint(false);
     try {
-      await signInWithRedirect(auth, googleProvider);
+      if (Capacitor.isNativePlatform()) {
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (loginError) {
       setError(getErrorMessage(loginError));
       setBusy(false);
