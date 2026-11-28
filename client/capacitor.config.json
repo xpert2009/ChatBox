@@ -6,6 +6,9 @@
     "androidScheme": "https"
   },
   "plugins": {
+    "Filesystem": {
+      "iosScheme": "capacitor"
+    },
     "FirebaseAuthentication": {
       "skipNativeAuth": false,
       "providers": ["google.com"]

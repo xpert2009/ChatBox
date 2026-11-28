@@ -3,12 +3,15 @@ import { BrowserRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
-  ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText,
+  ArrowLeft, Check, CheckCheck, ChevronDown, CircleUserRound, Download, FileText, LoaderCircle,
   Copy, Image, LogOut, MessageCircle, MoreHorizontal, Paperclip, Rocket,
   Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
+import { AppLauncher } from '@capacitor/app-launcher';
 import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { FileOpener } from '@capacitor-community/file-opener';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import {
   GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signInWithPopup, signOut,
@@ -76,6 +79,7 @@ function UpdateChecker() {
 
 function UpdateAvailableModal({ onClose }) {
   const [openError, setOpenError] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('idle');
   const dialogRef = useRef(null);
   const updateButtonRef = useRef(null);
 
@@ -108,13 +112,46 @@ function UpdateAvailableModal({ onClose }) {
     };
   }, [onClose]);
 
-  async function openReleasePage() {
+  async function handleUpdate() {
     setOpenError('');
+    setUpdateStatus('downloading');
     try {
-      await Browser.open({ url: LATEST_RELEASE_URL });
+      if (!Capacitor.isNativePlatform()) {
+        await Browser.open({ url: LATEST_RELEASE_URL });
+        return;
+      }
+
+      const apkPath = 'DreamChat-update.apk';
+      await Filesystem.downloadFile({
+        url: `${LATEST_RELEASE_URL}/download/DreamChat.apk`,
+        path: apkPath,
+        directory: Directory.Cache,
+      });
+      const downloadedFile = await Filesystem.stat({
+        path: apkPath,
+        directory: Directory.Cache,
+      });
+      if (downloadedFile.size === 0) throw new Error('Downloaded APK is empty.');
+      const file = await Filesystem.getUri({ path: apkPath, directory: Directory.Cache });
+      await FileOpener.open({
+        filePath: file.uri,
+        contentType: 'application/vnd.android.package-archive',
+      });
     } catch (error) {
-      console.error('Could not open the Dream Chat release page:', error);
-      setOpenError('Link open nahi hua. Thodi der baad phir try karein.');
+      console.error('Could not download or open the Dream Chat update:', error);
+      try {
+        if (Capacitor.isNativePlatform()) {
+          await AppLauncher.openUrl({ url: LATEST_RELEASE_URL });
+        } else {
+          await Browser.open({ url: LATEST_RELEASE_URL });
+        }
+        setOpenError('APK download nahi hua. Latest APK download karne ke liye releases page khol diya hai.');
+      } catch (fallbackError) {
+        console.error('Could not open the Dream Chat release page:', fallbackError);
+        setOpenError('Update link open nahi hua. Thodi der baad phir try karein.');
+      }
+    } finally {
+      setUpdateStatus('idle');
     }
   }
 
@@ -135,9 +172,18 @@ function UpdateAvailableModal({ onClose }) {
         <div className="update-icon" aria-hidden="true"><Rocket size={24} /></div>
         <h1 id="update-title">Naya Update Available Hai! 🚀</h1>
         <p id="update-description">Dream Chat ka naya version aapke liye tayyar hai.</p>
-        <button ref={updateButtonRef} type="button" className="update-primary" onClick={openReleasePage}>
-          <Download size={18} aria-hidden="true" />
-          Abhi Update Karein
+        <button
+          ref={updateButtonRef}
+          type="button"
+          className="update-primary"
+          onClick={handleUpdate}
+          disabled={updateStatus === 'downloading'}
+          aria-busy={updateStatus === 'downloading'}
+        >
+          {updateStatus === 'downloading'
+            ? <LoaderCircle size={18} className="update-spinner" aria-hidden="true" />
+            : <Download size={18} aria-hidden="true" />}
+          {updateStatus === 'downloading' ? 'Downloading...' : 'Update Now'}
         </button>
         {openError && <p className="update-error" role="alert">{openError}</p>}
         <button type="button" className="update-skip" onClick={onClose}>Baad Mein</button>

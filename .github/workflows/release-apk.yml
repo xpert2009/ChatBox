@@ -1,0 +1,39 @@
+name: Release APK
+
+on:
+  workflow_run:
+    workflows: ["Build Android APK"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ github.event.workflow_run.id }}
+          name: dream-chat-debug-apk
+          path: ./apk
+
+      - name: Name release APK
+        run: cp ./apk/app-debug.apk ./apk/DreamChat.apk
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TARGET: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload latest ./apk/DreamChat.apk --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit latest --repo "$GITHUB_REPOSITORY" --title "Dream Chat Latest" --notes "Latest Dream Chat update" --target "$RELEASE_TARGET" --latest
+          else
+            gh release create latest ./apk/DreamChat.apk --repo "$GITHUB_REPOSITORY" --title "Dream Chat Latest" --notes "Latest Dream Chat update" --target "$RELEASE_TARGET" --latest
+          fi
