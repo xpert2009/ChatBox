@@ -81,7 +81,7 @@ const apiLimiter = rateLimit({
 });
 app.use('/api', apiLimiter);
 
-app.get('/version', (_req, res) => res.json({ version: '1.0.0' }));
+app.get('/version', (_req, res) => res.json({ version: '1.1.0' }));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth/google', loginLimiter);
 app.use('/api/auth', authRoutes);
