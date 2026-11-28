@@ -24,15 +24,12 @@ export async function pingBackendHealth() {
   healthPingInFlight = true;
   try {
     const healthUrl = new URL(HEALTH_PATH, api.defaults.baseURL);
-    const response = await fetch(healthUrl, {
+    await fetch(healthUrl, {
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     });
-    if (response.type !== 'opaque' && !response.ok) {
-      console.warn(`Dream Chat backend health ping returned HTTP ${response.status}.`);
-    }
-  } catch (error) {
-    console.warn('Dream Chat backend health ping failed:', error);
+  } catch {
+    // Keep-alive is best-effort and must not interrupt app startup.
   } finally {
     healthPingInFlight = false;
   }

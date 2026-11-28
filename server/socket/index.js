@@ -4,14 +4,12 @@ import mongoose from 'mongoose';
 import { Message, Notification, Session, User } from '../models/index.js';
 import { hasValidSessionClaims } from '../utils/sessions.js';
 
-export function attachSocketServer(httpServer, allowedOrigin) {
+export function attachSocketServer(httpServer, allowedOrigins) {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.NODE_ENV === 'production'
-        ? [...new Set([allowedOrigin, 'https://chatbox-frontend-xpert2009.vercel.app'].filter(Boolean))]
-        : [...new Set([allowedOrigin, 'http://localhost:5173', 'http://localhost:4173'])],
+      origin: allowedOrigins,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-      credentials: true,
+      credentials: false,
     },
     transports: ['websocket', 'polling'],
   });

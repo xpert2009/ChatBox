@@ -61,8 +61,8 @@ function UpdateChecker() {
         if (!response.ok) throw new Error(`Version check returned HTTP ${response.status}.`);
         const result = await response.json();
         if (active && isNewerVersion(result?.version, CURRENT_APP_VERSION)) setAvailable(true);
-      } catch (error) {
-        console.warn('Dream Chat update check failed:', error);
+      } catch {
+        // Version checks are optional; don't interrupt startup when the API is unavailable.
       }
     }
 

@@ -46,14 +46,16 @@ app.use((_req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   next();
 });
-app.use(cors({
+const corsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('Origin is not allowed by CORS.'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
+};
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 const loginLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -103,7 +105,7 @@ app.use((error, _req, res, _next) => {
   res.status(error.status || 500).json({ error: error.status ? error.message : 'An unexpected server error occurred.' });
 });
 
-const io = attachSocketServer(httpServer, allowedOrigin);
+const io = attachSocketServer(httpServer, allowedOrigins);
 app.set('io', io);
 
 const port = Number(process.env.PORT) || 5000;
