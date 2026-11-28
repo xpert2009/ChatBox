@@ -7,8 +7,6 @@ import {
   Copy, Image, LogOut, MessageCircle, MoreHorizontal, Paperclip, Rocket,
   Plus, Search, Send, Settings, Smile, UserPlus, X,
 } from 'lucide-react';
-import { Browser } from '@capacitor/browser';
-import { AppLauncher } from '@capacitor/app-launcher';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { FileOpener } from '@capacitor-community/file-opener';
@@ -116,10 +114,7 @@ function UpdateAvailableModal({ onClose }) {
     setOpenError('');
     setUpdateStatus('downloading');
     try {
-      if (!Capacitor.isNativePlatform()) {
-        await Browser.open({ url: LATEST_RELEASE_URL });
-        return;
-      }
+      if (!Capacitor.isNativePlatform()) throw new Error('APK installation is only available in the Android app.');
 
       const apkPath = 'DreamChat-update.apk';
       await Filesystem.downloadFile({
@@ -138,18 +133,8 @@ function UpdateAvailableModal({ onClose }) {
         contentType: 'application/vnd.android.package-archive',
       });
     } catch (error) {
-      console.error('Could not download or open the Dream Chat update:', error);
-      try {
-        if (Capacitor.isNativePlatform()) {
-          await AppLauncher.openUrl({ url: LATEST_RELEASE_URL });
-        } else {
-          await Browser.open({ url: LATEST_RELEASE_URL });
-        }
-        setOpenError('APK download nahi hua. Latest APK download karne ke liye releases page khol diya hai.');
-      } catch (fallbackError) {
-        console.error('Could not open the Dream Chat release page:', fallbackError);
-        setOpenError('Update link open nahi hua. Thodi der baad phir try karein.');
-      }
+      console.error('Update error:', error);
+      setOpenError('Download fail hua. Internet check karein aur dobara try karein.');
     } finally {
       setUpdateStatus('idle');
     }
