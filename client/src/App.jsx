@@ -18,7 +18,12 @@ import { auth, googleProvider, isFirebaseConfigured } from './lib/firebase';
 import { useAuthStore } from './store/authStore';
 import './App.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL
+  || import.meta.env.VITE_BACKEND_URL
+  || 'https://chatbox-pgpf.onrender.com';
+const SOCKET_URL = import.meta.env.VITE_API_URL
+  || import.meta.env.VITE_BACKEND_URL
+  || 'https://chatbox-pgpf.onrender.com';
 const CURRENT_APP_VERSION = '1.0.0';
 const LATEST_RELEASE_URL = 'https://github.com/xpert2009/ChatBox/releases/latest';
 const EmojiPicker = lazy(() => import('emoji-picker-react'));
@@ -526,7 +531,7 @@ function AppShell() {
   useEffect(() => {
     if (!userId) return undefined;
     loadData();
-    const socket = io(API_URL, { auth: { token: getAuthToken() } });
+    const socket = io(SOCKET_URL, { auth: { token: getAuthToken() } });
     socketRef.current = socket;
     socket.on('connect_error', (error) => toast.error(`Live updates unavailable: ${error.message}`));
     socket.on('receive_message', (message) => {
